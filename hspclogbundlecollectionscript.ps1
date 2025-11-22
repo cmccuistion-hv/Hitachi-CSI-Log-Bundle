@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Hitachi HSPC CSI Driver Log Bundle Collector v1.1 - PowerShell Edition
+    Hitachi HSPC CSI Driver Log Bundle Collector v1.2.1 - PowerShell Edition
     -Kubeconfig optional · auto-detect OpenShift · full manifests
     -Collects logs from ALL containers in each pod.
     -Oc optional 
