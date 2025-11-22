@@ -15,7 +15,7 @@ A comprehensive log collection tool for Hitachi CSI drivers running in Kubernete
 
 ## Requirements
 
-### Bash Script (`hspclogbundlecollectionscript-v1.2.1.sh`)
+### Bash Script (`hspclogbundlecollectionscript.sh`)
 
 - Linux or macOS
 - Bash 4.0+
@@ -24,7 +24,7 @@ A comprehensive log collection tool for Hitachi CSI drivers running in Kubernete
 - Optional: `parallel` for faster collection
 - Optional: `zip` or `python3` for compression
 
-### PowerShell Script (`hspclogbundlecollectionscript-v1.2.1.ps1`)
+### PowerShell Script (`hspclogbundlecollectionscript.ps1`)
 
 - Windows, Linux, or macOS
 - PowerShell 5.1+ or PowerShell Core 7+
@@ -42,7 +42,7 @@ A comprehensive log collection tool for Hitachi CSI drivers running in Kubernete
 
 2. Make the bash script executable (Linux/macOS):
    ```bash
-   chmod +x hspclogbundlecollectionscript-v1.2.1.sh
+   chmod +x hspclogbundlecollectionscript.sh
    ```
 
 3. (Optional) Place `kubectl` or `oc` binary in the same directory, or ensure it's in your PATH
@@ -53,84 +53,84 @@ A comprehensive log collection tool for Hitachi CSI drivers running in Kubernete
 
 **Basic usage** (uses default kubeconfig):
 ```bash
-./hspclogbundlecollectionscript-v1.2.1.sh
+./hspclogbundlecollectionscript.sh
 ```
 
 **With specific kubeconfig**:
 ```bash
-./hspclogbundlecollectionscript-v1.2.1.sh --kubeconfig /path/to/kubeconfig
+./hspclogbundlecollectionscript.sh --kubeconfig /path/to/kubeconfig
 ```
 
 **Force OpenShift oc binary**:
 ```bash
-./hspclogbundlecollectionscript-v1.2.1.sh --oc
+./hspclogbundlecollectionscript.sh --oc
 ```
 
 **Specify namespace** (if auto-detection fails):
 ```bash
-./hspclogbundlecollectionscript-v1.2.1.sh -n hspc-system
+./hspclogbundlecollectionscript.sh -n hspc-system
 ```
 
 **Custom output directory**:
 ```bash
-./hspclogbundlecollectionscript-v1.2.1.sh -d /tmp/my-logs
+./hspclogbundlecollectionscript.sh -d /tmp/my-logs
 ```
 
 **Parallel collection with 8 jobs**:
 ```bash
-./hspclogbundlecollectionscript-v1.2.1.sh -j 8
+./hspclogbundlecollectionscript.sh -j 8
 ```
 
 **Skip compression**:
 ```bash
-./hspclogbundlecollectionscript-v1.2.1.sh --no-compress
+./hspclogbundlecollectionscript.sh --no-compress
 ```
 
 **Combined options**:
 ```bash
-./hspclogbundlecollectionscript-v1.2.1.sh --kubeconfig ./kubeconfig --oc -n hspc-system -j 8
+./hspclogbundlecollectionscript.sh --kubeconfig ./kubeconfig --oc -n hspc-system -j 8
 ```
 
 ### PowerShell Script Examples
 
 **Basic usage**:
 ```powershell
-.\hspclogbundlecollectionscript-v1.2.1.ps1
+.\hspclogbundlecollectionscript.ps1
 ```
 
 **With specific kubeconfig**:
 ```powershell
-.\hspclogbundlecollectionscript-v1.2.1.ps1 -Kubeconfig C:\path\to\kubeconfig
+.\hspclogbundlecollectionscript.ps1 -Kubeconfig C:\path\to\kubeconfig
 ```
 
 **Force OpenShift oc binary**:
 ```powershell
-.\hspclogbundlecollectionscript-v1.2.1.ps1 -Oc
+.\hspclogbundlecollectionscript.ps1 -Oc
 ```
 
 **Specify namespace**:
 ```powershell
-.\hspclogbundlecollectionscript-v1.2.1.ps1 -Namespace hspc-system
+.\hspclogbundlecollectionscript.ps1 -Namespace hspc-system
 ```
 
 **Custom output directory**:
 ```powershell
-.\hspclogbundlecollectionscript-v1.2.1.ps1 -Dir C:\temp\my-logs
+.\hspclogbundlecollectionscript.ps1 -Dir C:\temp\my-logs
 ```
 
 **Parallel jobs** (note: PowerShell script uses sequential collection by default for reliability):
 ```powershell
-.\hspclogbundlecollectionscript-v1.2.1.ps1 -Jobs 8
+.\hspclogbundlecollectionscript.ps1 -Jobs 8
 ```
 
 **Skip compression**:
 ```powershell
-.\hspclogbundlecollectionscript-v1.2.1.ps1 -NoCompress
+.\hspclogbundlecollectionscript.ps1 -NoCompress
 ```
 
 **Combined options**:
 ```powershell
-.\hspclogbundlecollectionscript-v1.2.1.ps1 -Kubeconfig .\kubeconfig -Oc -Namespace hspc-system -Dir .\logs
+.\hspclogbundlecollectionscript.ps1 -Kubeconfig .\kubeconfig -Oc -Namespace hspc-system -Dir .\logs
 ```
 
 ## Command-Line Options
