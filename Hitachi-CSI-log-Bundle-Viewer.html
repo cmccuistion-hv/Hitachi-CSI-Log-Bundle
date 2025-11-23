@@ -1526,6 +1526,8 @@
                     updateProgress((processedFiles / totalFiles) * 100, `Processing cluster context...`);
                     state.clusterContext = file.content;
                     parseClusterContext(file.content);
+                    // Parse pod metadata now so node info is available when processing logs
+                    parsePodMetadata();
                 } else if (file.name.endsWith('.log') && file.name !== 'errors.log') {
                     const podName = file.name.replace('.log', '');
                     updateProgress((processedFiles / totalFiles) * 100, `Processing ${podName}...`);
@@ -1655,7 +1657,9 @@
                     }
                     
                     // Update node health if applicable (node info comes from cluster-context)
-                    const nodeForHealth = state.podHealth[podName]?.node;
+                    // Extract base pod name (before underscore) to match cluster-context pod headers
+                    const basePodName = podName.split('_')[0];
+                    const nodeForHealth = state.podHealth[basePodName]?.node;
                     if (nodeForHealth) {
                         if (!state.nodeHealth[nodeForHealth]) {
                             state.nodeHealth[nodeForHealth] = { errors: 0, warnings: 0, pods: [] };
@@ -1670,7 +1674,9 @@
                     state.podHealth[podName].warnings++;
                     
                     // Update node health if applicable (node info comes from cluster-context)
-                    const nodeForHealth = state.podHealth[podName]?.node;
+                    // Extract base pod name (before underscore) to match cluster-context pod headers
+                    const basePodName = podName.split('_')[0];
+                    const nodeForHealth = state.podHealth[basePodName]?.node;
                     if (nodeForHealth) {
                         if (!state.nodeHealth[nodeForHealth]) {
                             state.nodeHealth[nodeForHealth] = { errors: 0, warnings: 0, pods: [] };
@@ -3060,7 +3066,7 @@
                             </div>
                         </div>
                         <div style="background: #2d2d30; padding: 15px; border-radius: 8px; border-left: 4px solid #28a745;">
-                            <div style="font-size: 14px; margin-bottom: 5px;">Worker Nodes</div>
+                            <div style="font-size: 14px; margin-bottom: 5px;">Nodes with HSPC Pods</div>
                             <div style="font-size: 28px; font-weight: bold;">${totalNodes}</div>
                             <div style="font-size: 12px; margin-top: 5px;">
                                 ${nodesWithErrors} with errors, ${nodesWithWarnings} with warnings
@@ -3392,7 +3398,7 @@
             
             let html = `
                 <div class="config-section">
-                    <h3>🖥️ Worker Node Health</h3>
+                    <h3>🖥️ Node Health</h3>
                     <table class="config-table">
                         <thead>
                             <tr>
