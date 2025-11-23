@@ -1,4 +1,4 @@
-# Hitachi CSI Driver Log Bundle Collector
+# Hitachi CSI Log Bundle Collector
 
 A comprehensive log collection tool for Hitachi CSI drivers running in Kubernetes or OpenShift environments. This tool automatically discovers your HSPC installation, collects logs from all our CSI's pods and containers, gathers cluster context, and packages everything into a convenient bundle for troubleshooting and support.
 
