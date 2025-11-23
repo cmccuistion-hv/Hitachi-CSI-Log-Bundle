@@ -13,11 +13,23 @@
 
 set -euo pipefail
 
+# Helper functions
+log() { echo "[$(date +'%H:%M:%S')] $*"; }
+die() { echo "ERROR: $*"; exit 1; }
+
 # Prefer local binaries if present, otherwise fall back to system PATH
-KUBECTL_CMD=$(command -v ./kubectl 2>/dev/null || command -v kubectl || die "kubectl not found")
+KUBECTL_CMD=$(command -v ./kubectl 2>/dev/null || command -v kubectl || echo "")
 OC_CMD=$(command -v ./oc 2>/dev/null || command -v oc || echo "")
 
-CMD="$KUBECTL_CMD"
+# Ensure at least one command is available (prefer kubectl, fall back to oc)
+if [[ -n "$KUBECTL_CMD" ]]; then
+    CMD="$KUBECTL_CMD"
+elif [[ -n "$OC_CMD" ]]; then
+    CMD="$OC_CMD"
+    log "kubectl not found, using oc command"
+else
+    die "Neither kubectl nor oc found. Please install kubectl/oc or configure PATH with location, or place it in the current directory."
+fi
 
 KUBECONFIG_ARG=""
 NAMESPACE=""
@@ -29,9 +41,6 @@ TIMEOUT_SEC=300
 CRD_NAME="hspcs.csi.hitachi.com"
 KIND="HSPC"
 SERVICE_ACCOUNT="hspc-csi-sa"
-
-log() { echo "[$(date +'%H:%M:%S')] $*"; }
-die() { echo "ERROR: $*"; exit 1; }
 
 KUBE() {
     if [[ -n "$KUBECONFIG_ARG" ]]; then
@@ -178,6 +187,16 @@ fi
 
     echo -e "\n=== ReplicaSets ==="
     KUBE get rs -n "$NAMESPACE" -o yaml 2>/dev/null || echo "No ReplicaSets found"
+
+    echo -e "\n=== HSPC StorageClasses ==="
+    sc_names=$(KUBE get storageclass -o jsonpath='{range .items[?(@.provisioner=="hspc.csi.hitachi.com")]}{.metadata.name}{"\n"}{end}' 2>/dev/null | grep -v '^$')
+    if [[ -n "$sc_names" ]]; then
+        echo "$sc_names" | while read -r sc; do
+            [[ -n "$sc" ]] && KUBE get storageclass "$sc" -o yaml 2>/dev/null
+        done
+    else
+        echo "No HSPC StorageClasses found"
+    fi
 
     echo -e "\n=== Pod Ownership Chain ==="
     for pod in "${PODS[@]}"; do

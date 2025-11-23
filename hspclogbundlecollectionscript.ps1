@@ -31,18 +31,31 @@ param(
 $ErrorActionPreference = "Stop"
 
 # Prefer local binaries if present, otherwise system PATH
-$Kubectl = if (Test-Path "./kubectl.exe") { "./kubectl.exe" } elseif (Test-Path "./kubectl") { "./kubectl" } else { "kubectl" }
+$Kubectl = if (Test-Path "./kubectl.exe") { "./kubectl.exe" } elseif (Test-Path "./kubectl") { "./kubectl" } elseif (Get-Command "kubectl" -ErrorAction SilentlyContinue) { "kubectl" } else { "" }
 $OcCmd   = if (Test-Path "./oc.exe") { "./oc.exe" } elseif (Test-Path "./oc") { "./oc" } elseif (Get-Command "oc" -ErrorAction SilentlyContinue) { "oc" } else { "" }
 
+# Ensure at least one command is available
 if ($Oc -and -not $OcCmd) {
     Die "oc binary not found (required when -Oc flag is used)"
 }
 
-$Cmd = if ($Oc) { $OcCmd } else { $Kubectl }
+if (-not $Oc) {
+    # Not explicitly using -Oc flag, prefer kubectl but fall back to oc
+    if ($Kubectl) {
+        $Cmd = $Kubectl
+    } elseif ($OcCmd) {
+        $Cmd = $OcCmd
+        Log "kubectl not found, using oc command"
+    } else {
+        Die "Neither kubectl nor oc found. Please install kubectl/oc or configure PATH with location, or place it in the current directory."
+    }
+} else {
+    # Explicitly using -Oc flag
+    $Cmd = $OcCmd
+}
 
 $OutputDir = if ($Dir) { $Dir } else { "./hspc-csi-logs-$(Get-Date -Format 'yyyyMMdd-HHmmss')" }
 $Compress = -not $NoCompress
-$TimeoutSec = 300
 
 $CRD_NAME = "hspcs.csi.hitachi.com"
 $KIND = "HSPC"
@@ -62,7 +75,7 @@ function Kube {
     & $Cmd @fullArgs
 }
 
-function Is-OpenShift {
+function Test-OpenShift {
     try { Kube api-resources --api-group=route.openshift.io | Out-Null; return $true } catch {}
     try { Kube api-resources --api-group=security.openshift.io | Out-Null; return $true } catch {}
     try { Kube api-resources --api-group=console.openshift.io | Out-Null; return $true } catch {}
@@ -71,7 +84,7 @@ function Is-OpenShift {
 
 Log "Using: $Cmd $(if ($Kubeconfig) { "--kubeconfig=$Kubeconfig" } else { '(default kubeconfig)' })"
 
-if (($Cmd -like "*kubectl*") -and (Is-OpenShift)) {
+if (($Cmd -like "*kubectl*") -and (Test-OpenShift)) {
     if ($OcCmd) {
         Log "OpenShift detected → switching to oc"
         $Cmd = $OcCmd
@@ -81,14 +94,16 @@ if (($Cmd -like "*kubectl*") -and (Is-OpenShift)) {
 }
 
 # Final safety net
-if (-not (Kube get crd $CRD_NAME 2>$null)) {
+$null = Kube get crd $CRD_NAME 2>&1
+if (-not $?) {
     if (($Cmd -like "*kubectl*") -and $OcCmd -and (Get-Command $OcCmd -ErrorAction SilentlyContinue)) {
         Log "CRD not visible with kubectl → forcing oc"
         $Cmd = $OcCmd
     }
 }
 
-if (-not (Kube get crd $CRD_NAME 2>$null)) {
+$null = Kube get crd $CRD_NAME 2>&1
+if (-not $?) {
     Die "CRD $CRD_NAME not found - wrong cluster or auth issue"
 }
 Log "Found HSPC CRD"
@@ -146,10 +161,10 @@ $contextFile = "$OutputDir/cluster-context.txt"
 Kube version | Out-File -Encoding utf8 -Append $contextFile
 
 "`n=== Orchestration Platform ===" | Out-File -Encoding utf8 -Append $contextFile
-if (Is-OpenShift) {
+if (Test-OpenShift) {
     "Platform: OpenShift" | Out-File -Encoding utf8 -Append $contextFile
     try {
-        Kube version -o json 2>$null | Out-File -Encoding utf8 -Append $contextFile
+        Kube version -o json | Out-File -Encoding utf8 -Append $contextFile
     } catch {
         "OpenShift (version details unavailable)" | Out-File -Encoding utf8 -Append $contextFile
     }
@@ -167,35 +182,51 @@ Kube get hspc -n $Namespace -o yaml | Out-File -Encoding utf8 -Append $contextFi
 
 "`n=== All Deployments ===" | Out-File -Encoding utf8 -Append $contextFile
 try {
-    Kube get deploy -n $Namespace -o yaml 2>$null | Out-File -Encoding utf8 -Append $contextFile
+    Kube get deploy -n $Namespace -o yaml | Out-File -Encoding utf8 -Append $contextFile
 } catch {
     "No deployments found" | Out-File -Encoding utf8 -Append $contextFile
 }
 
 "`n=== All DaemonSets ===" | Out-File -Encoding utf8 -Append $contextFile
 try {
-    Kube get daemonset -n $Namespace -o yaml 2>$null | Out-File -Encoding utf8 -Append $contextFile
+    Kube get daemonset -n $Namespace -o yaml | Out-File -Encoding utf8 -Append $contextFile
 } catch {
     "No DaemonSets found" | Out-File -Encoding utf8 -Append $contextFile
 }
 
 "`n=== All ReplicaSets ===" | Out-File -Encoding utf8 -Append $contextFile
 try {
-    Kube get rs -n $Namespace -o yaml 2>$null | Out-File -Encoding utf8 -Append $contextFile
+    Kube get rs -n $Namespace -o yaml | Out-File -Encoding utf8 -Append $contextFile
 } catch {
     "No ReplicaSets found" | Out-File -Encoding utf8 -Append $contextFile
 }
 
+"`n=== HSPC StorageClasses ===" | Out-File -Encoding utf8 -Append $contextFile
+try {
+    $scNames = (Kube get storageclass -o jsonpath='{range .items[?(@.provisioner=="hspc.csi.hitachi.com")]}{.metadata.name}{"\n"}{end}' 2>$null).Trim() -split "`n" | Where-Object { $_.Length -gt 0 }
+    if ($scNames.Count -gt 0) {
+        foreach ($sc in $scNames) {
+            Kube get storageclass $sc -o yaml | Out-File -Encoding utf8 -Append $contextFile
+        }
+    } else {
+        "No HSPC StorageClasses found" | Out-File -Encoding utf8 -Append $contextFile
+    }
+} catch {
+    "Error retrieving HSPC StorageClasses" | Out-File -Encoding utf8 -Append $contextFile
+}
+
 "`n=== Pod Ownership Chain ===" | Out-File -Encoding utf8 -Append $contextFile
 foreach ($pod in $pods) {
-    $ownerKind = (Kube get pod $pod -n $Namespace -o jsonpath='{.metadata.ownerReferences[0].kind}' 2>$null) ?? "None"
-    $ownerName = (Kube get pod $pod -n $Namespace -o jsonpath='{.metadata.ownerReferences[0].name}' 2>$null) ?? "None"
+    $ErrorActionPreference = 'SilentlyContinue'
+    $ownerKind = (Kube get pod $pod -n $Namespace -o jsonpath='{.metadata.ownerReferences[0].kind}') ?? "None"
+    $ownerName = (Kube get pod $pod -n $Namespace -o jsonpath='{.metadata.ownerReferences[0].name}') ?? "None"
     if ($ownerKind -eq "ReplicaSet") {
-        $deploy = (Kube get rs $ownerName -n $Namespace -o jsonpath='{.metadata.ownerReferences[0].name}' 2>$null) ?? "unknown"
+        $deploy = (Kube get rs $ownerName -n $Namespace -o jsonpath='{.metadata.ownerReferences[0].name}') ?? "unknown"
         "$pod → ReplicaSet/$ownerName → Deployment/$deploy" | Out-File -Encoding utf8 -Append $contextFile
     } else {
         "$pod → $ownerKind/$ownerName" | Out-File -Encoding utf8 -Append $contextFile
     }
+    $ErrorActionPreference = 'Continue'
 }
 
 "`n=== Pod Descriptions ===" | Out-File -Encoding utf8 -Append $contextFile
