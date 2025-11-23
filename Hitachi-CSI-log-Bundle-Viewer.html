@@ -58,15 +58,96 @@
             display: flex;
             align-items: center;
             gap: 10px;
+            margin-bottom: 5px;
         }
 
         .logo {
             font-size: 24px;
         }
 
+        .header-timestamp {
+            color: var(--text-secondary);
+            font-size: 13px;
+            margin-left: 34px;
+            font-weight: normal;
+        }
+
         .header-info {
             color: var(--text-secondary);
             font-size: 12px;
+        }
+
+        /* Update Banner */
+        .update-banner {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            animation: slideDown 0.3s ease-out;
+        }
+
+        .update-banner.hidden {
+            display: none;
+        }
+
+        .update-banner-content {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            max-width: 1200px;
+            width: 100%;
+        }
+
+        .update-icon {
+            font-size: 18px;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .update-message {
+            flex: 1;
+            font-size: 13px;
+        }
+
+        .update-dismiss {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+
+        .update-dismiss:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        @keyframes slideDown {
+            from {
+                transform: translateY(-100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                transform: scale(1);
+            }
+            50% {
+                transform: scale(1.1);
+            }
         }
 
         /* Drop Zone */
@@ -457,7 +538,8 @@
             background: var(--bg-tertiary);
             max-height: 400px;
             overflow-y: auto;
-            white-space: pre-wrap;
+            overflow-x: auto;
+            white-space: pre;
             font-size: 11px;
             line-height: 1.6;
         }
@@ -474,6 +556,34 @@
             transform: rotate(-90deg);
         }
 
+        .context-header-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .copy-section-btn {
+            padding: 4px 8px;
+            font-size: 11px;
+            background: var(--accent);
+            color: var(--text);
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: opacity 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .copy-section-btn:hover {
+            opacity: 0.8;
+        }
+
+        .copy-section-btn:active {
+            transform: scale(0.95);
+        }
+
         /* Loading */
         .loading {
             position: fixed;
@@ -486,6 +596,7 @@
             border: 1px solid var(--border-color);
             text-align: center;
             z-index: 2000;
+            min-width: 350px;
         }
 
         .loading.hidden {
@@ -505,6 +616,28 @@
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
+        }
+
+        .progress-bar-container {
+            width: 100%;
+            height: 6px;
+            background: var(--bg-tertiary);
+            border-radius: 3px;
+            margin: 15px 0 10px;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-blue), var(--accent-green));
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+
+        .progress-text {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 8px;
         }
 
         /* Tabs */
@@ -704,6 +837,21 @@
             color: var(--text-primary);
         }
 
+        .clickable-card {
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .clickable-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(58, 150, 221, 0.3);
+            border-color: var(--accent-blue);
+        }
+
+        .clickable-card:active {
+            transform: translateY(0);
+        }
+
         .ldev-id {
             color: var(--warning-yellow);
             font-weight: 600;
@@ -787,17 +935,55 @@
         .row-with-warning {
             background: rgba(220, 220, 170, 0.05) !important;
         }
+
+        .clickable-row {
+            transition: background-color 0.2s;
+        }
+
+        .clickable-row:hover {
+            background: var(--bg-hover) !important;
+        }
+
+        .filter-badge {
+            display: inline-block;
+            background: var(--accent-blue);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            margin-left: 10px;
+            font-weight: normal;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>
-                <span class="logo">📊</span>
-                Hitachi CSI Log Bundle Viewer
-            </h1>
-            <div class="header-info" id="bundleInfo">No bundle loaded</div>
+            <div>
+                <h1>
+                    <span class="logo">📑</span>
+                    Hitachi CSI Log Bundle Viewer
+                    <span style="font-size: 12px; font-weight: normal; color: var(--text-secondary); margin-left: 12px;">v<span id="currentVersion"></span></span>
+                </h1>
+                <div class="header-timestamp" id="bundleTimestamp"></div>
+            </div>
+            <div class="header-info">
+                <span id="bundleInfo">No bundle loaded</span>
+                <a href="#" id="githubLink" style="margin-left: 15px; font-size: 11px; color: var(--accent-blue); text-decoration: none;" title="View releases on GitHub" target="_blank">📦 GitHub Releases</a>
+            </div>
         </header>
+
+        <!-- Update Notification Banner -->
+        <div id="updateBanner" class="update-banner hidden">
+            <div class="update-banner-content">
+                <span class="update-icon">🔔</span>
+                <span class="update-message">
+                    A new version (<strong id="latestVersion"></strong>) is available! 
+                    <a href="#" id="updateLink" target="_blank" style="color: #fff; text-decoration: underline;">Download latest version</a>
+                </span>
+                <button class="update-dismiss" onclick="dismissUpdateBanner()">✕</button>
+            </div>
+        </div>
 
         <!-- Drop Zone -->
         <div class="drop-zone" id="dropZone">
@@ -813,7 +999,11 @@
         <!-- Loading Indicator -->
         <div class="loading hidden" id="loading">
             <div class="spinner"></div>
-            <div>Processing log bundle...</div>
+            <div id="loadingMessage">Processing log bundle...</div>
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+            <div class="progress-text" id="progressText"></div>
         </div>
 
         <!-- Main Content -->
@@ -839,6 +1029,26 @@
                         <span class="stat-value info" id="platform">-</span>
                     </div>
                     <div class="stat-item">
+                        <span class="stat-label">Platform Version</span>
+                        <span class="stat-value info" id="platformVersion">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">HSPC Version</span>
+                        <span class="stat-value info" id="hspcVersion">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">HSPCC Version</span>
+                        <span class="stat-value info" id="hspccVersion">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Git Commit</span>
+                        <span class="stat-value info" id="gitCommit">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Go Version</span>
+                        <span class="stat-value info" id="goVersion">-</span>
+                    </div>
+                    <div class="stat-item">
                         <span class="stat-label">Nodes</span>
                         <span class="stat-value" id="nodeCount">0</span>
                     </div>
@@ -854,6 +1064,7 @@
             <div class="viewer-panel">
                 <div class="tabs">
                     <div class="tab active" data-tab="logs">📄 Logs</div>
+                    <div class="tab" data-tab="health">🏥 Health & Diagnostics</div>
                     <div class="tab" data-tab="config">📋 Configuration</div>
                     <div class="tab" data-tab="cluster">🔧 Cluster Info</div>
                 </div>
@@ -887,6 +1098,16 @@
                         <div class="empty-state">
                             <div class="empty-state-icon">📝</div>
                             <p>Select a pod from the sidebar to view logs</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Health & Diagnostics Tab -->
+                <div class="tab-content" data-content="health">
+                    <div class="log-content" id="healthContent" style="overflow-y: auto;">
+                        <div class="empty-state">
+                            <div class="empty-state-icon">🏥</div>
+                            <p>No health data available</p>
                         </div>
                     </div>
                 </div>
@@ -935,21 +1156,36 @@
            
            6. Debounced Search: 300ms debounce prevents excessive filtering
            
-           7. RequestAnimationFrame: Smooth chunked rendering and scroll updates
-           ============================================ */
+          7. RequestAnimationFrame: Smooth chunked rendering and scroll updates
+          ============================================ */
+
+        // Version Configuration
+        const VERSION = '1.5';
+        const GITHUB_REPO = 'cmccuistion-hv/Hitachi-CSI-Log-Bundle';
+        const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`;
+        const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
 
         // Global State
         const state = {
             logs: {},
+            allLogs: [],  // Pre-concatenated logs for "all pods" view (performance optimization)
             clusterContext: '',
             currentPod: 'all',
             filterLevel: 'ALL',
             searchTerm: '',
+            categoryFilter: null,  // Filter by error category
+            bundleName: '',
+            bundleTimestamp: '',
             stats: {
                 totalErrors: 0,
                 totalWarnings: 0,
                 totalLogs: 0,
                 platform: '-',
+                platformVersion: '-',
+                hspcVersion: '-',
+                hspccVersion: '-',
+                gitCommit: '-',
+                goVersion: '-',
                 nodeCount: 0
             },
             podStats: {},
@@ -970,16 +1206,28 @@
                 ports: {},           // port -> config
                 volumes: {},         // volume -> attachments
                 arrays: {},          // array serial -> array info
-                events: []           // timeline of config changes
+                events: [],          // timeline of config changes
+                storageClasses: []   // Array of parsed storage class objects
+            },
+            // Lazy parsing flags (performance optimization)
+            lazyParsed: {
+                storageClasses: false,
+                podMetadata: false
             },
             // Health tracking data
             podHealth: {},           // pod-name -> { errors, warnings, container, node }
             nodeHealth: {},          // node-name -> { errors, warnings, pods: [] }
             errorCategories: {       // Error type categorization
-                'device-detection': { count: 0, pods: [], description: 'Device detection timeouts (HSPC0x0000c008)' },
+                'device-detection': { count: 0, pods: [], description: 'Device detection timeouts and file system errors (HSPC0x0000c008, 0x0000900a)' },
                 'scsi-failures': { count: 0, pods: [], description: 'SCSI command failures (HSPC0x00009002)' },
-                'volume-operations': { count: 0, pods: [], description: 'Volume attach/detach/expand failures' },
-                'multipath-issues': { count: 0, pods: [], description: 'Multipath configuration warnings' },
+                'configuration-errors': { count: 0, pods: [], description: 'Configuration errors - secrets, parameters, invalid volume IDs, missing resources (HSPC0x0000c03b, 0x0000c002, 0x0000101e)' },
+                'unsupported-features': { count: 0, pods: [], description: 'Unsupported features or operations (code = Unimplemented)' },
+                'volume-operations': { count: 0, pods: [], description: 'Volume provision/attach/detach/expand/resize failures' },
+                'snapshot-operations': { count: 0, pods: [], description: 'Snapshot create/delete failures, copy groups, snapshot class config (HSPC0x0000c037, 0x0000b00a)' },
+                'storage-feature-errors': { count: 0, pods: [], description: 'Storage feature incompatibility errors (HSPC0x00001022, SSB codes)' },
+                'permission-errors': { count: 0, pods: [], description: 'Permission and authentication errors - resource groups, credentials (HSPC0x00001007, 0x00001025)' },
+                'rest-api-failures': { count: 0, pods: [], description: 'REST API job failures from storage system' },
+                'multipath-issues': { count: 0, pods: [], description: 'Multipath configuration and device detection issues (HSPC0x0000d001)' },
                 'connectivity': { count: 0, pods: [], description: 'Storage connectivity issues' },
                 'other': { count: 0, pods: [], description: 'Other errors' }
             },
@@ -992,10 +1240,84 @@
         const fileInput = document.getElementById('fileInput');
         const loading = document.getElementById('loading');
         const logContent = document.getElementById('logContent');
+        const healthContent = document.getElementById('healthContent');
         const clusterContent = document.getElementById('clusterContent');
         const searchInput = document.getElementById('searchInput');
         const searchClear = document.getElementById('searchClear');
         const podList = document.getElementById('podList');
+
+        // Version Management
+        function initializeVersion() {
+            // Display current version
+            document.getElementById('currentVersion').textContent = VERSION;
+            document.getElementById('githubLink').href = GITHUB_RELEASES_URL;
+            
+            // Check for updates (non-blocking)
+            checkForUpdates();
+        }
+
+        async function checkForUpdates() {
+            try {
+                const response = await fetch(GITHUB_API_URL, {
+                    cache: 'no-cache',
+                    headers: { 'Accept': 'application/vnd.github.v3+json' }
+                });
+                
+                if (!response.ok) {
+                    console.log('Unable to check for updates');
+                    return;
+                }
+                
+                const data = await response.json();
+                const latestVersion = data.tag_name.replace(/^v/, ''); // Remove 'v' prefix if present
+                
+                // Compare versions (simple string comparison works for semantic versioning)
+                if (compareVersions(latestVersion, VERSION) > 0) {
+                    showUpdateNotification(latestVersion, data.html_url);
+                }
+            } catch (error) {
+                // Silently fail - don't bother user if offline or GitHub is unreachable
+                console.log('Version check failed:', error.message);
+            }
+        }
+
+        function compareVersions(v1, v2) {
+            const parts1 = v1.split('.').map(Number);
+            const parts2 = v2.split('.').map(Number);
+            
+            for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+                const p1 = parts1[i] || 0;
+                const p2 = parts2[i] || 0;
+                if (p1 > p2) return 1;
+                if (p1 < p2) return -1;
+            }
+            return 0;
+        }
+
+        function showUpdateNotification(version, url) {
+            const banner = document.getElementById('updateBanner');
+            const latestVersionSpan = document.getElementById('latestVersion');
+            const updateLink = document.getElementById('updateLink');
+            
+            latestVersionSpan.textContent = `v${version}`;
+            updateLink.href = url;
+            
+            // Check if user previously dismissed this version
+            const dismissedVersion = localStorage.getItem('dismissedVersion');
+            if (dismissedVersion !== version) {
+                banner.classList.remove('hidden');
+            }
+        }
+
+        window.dismissUpdateBanner = function() {
+            const banner = document.getElementById('updateBanner');
+            const version = document.getElementById('latestVersion').textContent.replace(/^v/, '');
+            
+            // Remember that user dismissed this version
+            localStorage.setItem('dismissedVersion', version);
+            
+            banner.classList.add('hidden');
+        };
 
         // Initialize
         function init() {
@@ -1007,6 +1329,7 @@
             setupNavigation();
             setupExport();
             setupVirtualScroll();
+            initializeVersion();
         }
 
         // Drop Zone Setup
@@ -1067,13 +1390,16 @@
         // Handle ZIP File
         async function handleZipFile(file) {
             try {
+                // Extract bundle name from filename
+                state.bundleName = file.name;
+                
                 const zip = await JSZip.loadAsync(file);
                 const files = [];
                 
                 for (const [filename, zipEntry] of Object.entries(zip.files)) {
-                    if (!zipEntry.dir && (filename.endsWith('.log') || filename.includes('cluster-context'))) {
+                    const name = filename.split('/').pop();
+                    if (!zipEntry.dir && name !== 'errors.log' && (filename.endsWith('.log') || filename.includes('cluster-context'))) {
                         const content = await zipEntry.async('string');
-                        const name = filename.split('/').pop();
                         files.push({ name, content });
                     }
                 }
@@ -1090,14 +1416,58 @@
         async function processFiles(files) {
             const fileContents = [];
             
+            // Try to extract bundle name from folder path
+            if (files.length > 0 && files[0].webkitRelativePath) {
+                const pathParts = files[0].webkitRelativePath.split('/');
+                state.bundleName = pathParts[0]; // First part is the folder name
+            } else if (files.length > 0) {
+                // Fallback to first filename if no path info
+                state.bundleName = files[0].name.split('_')[0];
+            }
+            
             for (const file of files) {
-                if (file.name.endsWith('.log') || file.name.includes('cluster-context')) {
+                if ((file.name.endsWith('.log') && file.name !== 'errors.log') || file.name.includes('cluster-context')) {
                     const content = await file.text();
                     fileContents.push({ name: file.name, content });
                 }
             }
             
             await processFileContents(fileContents);
+        }
+
+        // Parse and format bundle timestamp
+        function formatBundleTimestamp(bundleName) {
+            // Try to extract timestamp from format: hspc-csi-logs-YYYYMMDD-HHMMSS
+            const match = bundleName.match(/(\d{8})-(\d{6})/);
+            if (match) {
+                const dateStr = match[1]; // YYYYMMDD
+                const timeStr = match[2]; // HHMMSS
+                
+                const year = dateStr.substring(0, 4);
+                const month = dateStr.substring(4, 6);
+                const day = dateStr.substring(6, 8);
+                const hour = timeStr.substring(0, 2);
+                const minute = timeStr.substring(2, 4);
+                const second = timeStr.substring(4, 6);
+                
+                // Create a date object
+                const date = new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}`);
+                
+                // Format as human-readable string
+                const options = { 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric', 
+                    hour: '2-digit', 
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: true
+                };
+                
+                return `Log Bundle Captured: ${date.toLocaleString('en-US', options)}`;
+            }
+            
+            return ''; // Return empty if no timestamp found
         }
 
         // Process File Contents
@@ -1109,6 +1479,11 @@
                 totalWarnings: 0,
                 totalLogs: 0,
                 platform: '-',
+                platformVersion: '-',
+                hspcVersion: '-',
+                hspccVersion: '-',
+                gitCommit: '-',
+                goVersion: '-',
                 nodeCount: 0
             };
             state.podStats = {};
@@ -1124,26 +1499,55 @@
             state.podHealth = {};
             state.nodeHealth = {};
             state.errorCategories = {
-                'device-detection': { count: 0, pods: [], description: 'Device detection timeouts (HSPC0x0000c008)' },
+                'device-detection': { count: 0, pods: [], description: 'Device detection timeouts and file system errors (HSPC0x0000c008, 0x0000900a)' },
                 'scsi-failures': { count: 0, pods: [], description: 'SCSI command failures (HSPC0x00009002)' },
-                'volume-operations': { count: 0, pods: [], description: 'Volume attach/detach/expand failures' },
-                'multipath-issues': { count: 0, pods: [], description: 'Multipath configuration warnings' },
+                'configuration-errors': { count: 0, pods: [], description: 'Configuration errors - secrets, parameters, invalid volume IDs, missing resources (HSPC0x0000c03b, 0x0000c002, 0x0000101e)' },
+                'unsupported-features': { count: 0, pods: [], description: 'Unsupported features or operations (code = Unimplemented)' },
+                'volume-operations': { count: 0, pods: [], description: 'Volume provision/attach/detach/expand/resize failures' },
+                'snapshot-operations': { count: 0, pods: [], description: 'Snapshot create/delete failures, copy groups, snapshot class config (HSPC0x0000c037, 0x0000b00a)' },
+                'storage-feature-errors': { count: 0, pods: [], description: 'Storage feature incompatibility errors (HSPC0x00001022, SSB codes)' },
+                'permission-errors': { count: 0, pods: [], description: 'Permission and authentication errors - resource groups, credentials (HSPC0x00001007, 0x00001025)' },
+                'rest-api-failures': { count: 0, pods: [], description: 'REST API job failures from storage system' },
+                'multipath-issues': { count: 0, pods: [], description: 'Multipath configuration and device detection issues (HSPC0x0000d001)' },
                 'connectivity': { count: 0, pods: [], description: 'Storage connectivity issues' },
                 'other': { count: 0, pods: [], description: 'Other errors' }
             };
             state.volumeOperations = [];
             state.connectivity = {};
 
+            // Parse and format the timestamp from bundle name
+            state.bundleTimestamp = formatBundleTimestamp(state.bundleName);
+
+            const totalFiles = files.length;
+            let processedFiles = 0;
+
             for (const file of files) {
                 if (file.name.includes('cluster-context')) {
+                    updateProgress((processedFiles / totalFiles) * 100, `Processing cluster context...`);
                     state.clusterContext = file.content;
                     parseClusterContext(file.content);
-                } else if (file.name.endsWith('.log')) {
+                } else if (file.name.endsWith('.log') && file.name !== 'errors.log') {
                     const podName = file.name.replace('.log', '');
+                    updateProgress((processedFiles / totalFiles) * 100, `Processing ${podName}...`);
                     state.logs[podName] = parseLogFile(file.content, podName);
+                }
+                
+                processedFiles++;
+                
+                // Allow UI to update every 5 files
+                if (processedFiles % 5 === 0) {
+                    await new Promise(resolve => setTimeout(resolve, 0));
                 }
             }
 
+            updateProgress(100, 'Finalizing...');
+            
+            // Pre-concatenate all logs for better "all pods" performance
+            state.allLogs = [];
+            for (const podLogs of Object.values(state.logs)) {
+                state.allLogs = state.allLogs.concat(podLogs);
+            }
+            
             updateUI();
             dropZone.classList.add('hidden');
             hideLoading();
@@ -1156,23 +1560,47 @@
             
             let errors = 0, warnings = 0;
 
-            // Extract container name from pod name (e.g., "pod_container" or "pod-hash_container")
-            const containerName = podName.includes('_') ? podName.split('_').slice(1).join('_') : podName;
-            
-            // Extract node name from pod name if it's a node driver
-            let nodeName = null;
-            if (podName.startsWith('hspc-csi-node-')) {
-                const match = podName.match(/hspc-csi-node-([^_]+)/);
-                if (match) nodeName = match[1];
+            // Extract HSPC version info from hspc-csi-driver logs (only from first 50 lines)
+            if (podName.includes('hspc-csi-driver')) {
+                for (let i = 0; i < Math.min(50, lines.length); i++) {
+                    const line = lines[i];
+                    
+                    // HSPC version: 
+                    if (line.includes('HSPC version') && state.stats.hspcVersion === '-') {
+                        const match = line.match(/HSPC version\s*:\s*(.+?)$/);
+                        if (match) state.stats.hspcVersion = match[1].trim();
+                    }
+                    
+                    // HSPCC version: 
+                    if (line.includes('HSPCC version') && state.stats.hspccVersion === '-') {
+                        const match = line.match(/HSPCC version\s*:\s*(.+?)$/);
+                        if (match) state.stats.hspccVersion = match[1].trim();
+                    }
+                    
+                    // Git commit: 
+                    if (line.includes('Git commit') && state.stats.gitCommit === '-') {
+                        const match = line.match(/Git commit\s*:\s*(.+?)$/);
+                        if (match) state.stats.gitCommit = match[1].trim();
+                    }
+                    
+                    // Go version: 
+                    if (line.includes('Go version') && state.stats.goVersion === '-') {
+                        const match = line.match(/Go version\s*:\s*(.+?)$/);
+                        if (match) state.stats.goVersion = match[1].trim();
+                    }
+                }
             }
 
-            // Initialize pod health tracking
+            // Extract container name from pod name (e.g., "pod_container" or "pod-hash_container")
+            const containerName = podName.includes('_') ? podName.split('_').slice(1).join('_') : podName;
+
+            // Initialize pod health tracking (node will be set by parseClusterContext if available)
             if (!state.podHealth[podName]) {
                 state.podHealth[podName] = {
                     errors: 0,
                     warnings: 0,
                     container: containerName,
-                    node: nodeName
+                    node: null  // Will be populated from cluster-context.txt
                 };
             }
 
@@ -1202,44 +1630,63 @@
                     }
                 }
 
+                // Determine category for this line
+                const lineCategory = determineCategory(line, level);
+                
                 parsed.push({
                     timestamp: timestamp,
                     level: level,
                     message: line,
                     source: podName,
-                    raw: line
+                    raw: line,
+                    category: lineCategory
                 });
                 
                 if (level === 'ERROR') {
                     errors++;
                     state.podHealth[podName].errors++;
                     
-                    // Categorize error
-                    categorizeError(line, podName);
-                    
-                    // Update node health if applicable
-                    if (nodeName) {
-                        if (!state.nodeHealth[nodeName]) {
-                            state.nodeHealth[nodeName] = { errors: 0, warnings: 0, pods: [] };
+                    // Categorize error for summary
+                    if (lineCategory) {
+                        state.errorCategories[lineCategory].count++;
+                        if (!state.errorCategories[lineCategory].pods.includes(podName)) {
+                            state.errorCategories[lineCategory].pods.push(podName);
                         }
-                        state.nodeHealth[nodeName].errors++;
-                        if (!state.nodeHealth[nodeName].pods.includes(podName)) {
-                            state.nodeHealth[nodeName].pods.push(podName);
+                    }
+                    
+                    // Update node health if applicable (node info comes from cluster-context)
+                    const nodeForHealth = state.podHealth[podName]?.node;
+                    if (nodeForHealth) {
+                        if (!state.nodeHealth[nodeForHealth]) {
+                            state.nodeHealth[nodeForHealth] = { errors: 0, warnings: 0, pods: [] };
+                        }
+                        state.nodeHealth[nodeForHealth].errors++;
+                        if (!state.nodeHealth[nodeForHealth].pods.includes(podName)) {
+                            state.nodeHealth[nodeForHealth].pods.push(podName);
                         }
                     }
                 } else if (level === 'WARNING') {
                     warnings++;
                     state.podHealth[podName].warnings++;
                     
-                    // Update node health if applicable
-                    if (nodeName) {
-                        if (!state.nodeHealth[nodeName]) {
-                            state.nodeHealth[nodeName] = { errors: 0, warnings: 0, pods: [] };
+                    // Update node health if applicable (node info comes from cluster-context)
+                    const nodeForHealth = state.podHealth[podName]?.node;
+                    if (nodeForHealth) {
+                        if (!state.nodeHealth[nodeForHealth]) {
+                            state.nodeHealth[nodeForHealth] = { errors: 0, warnings: 0, pods: [] };
                         }
-                        state.nodeHealth[nodeName].warnings++;
-                        if (!state.nodeHealth[nodeName].pods.includes(podName)) {
-                            state.nodeHealth[nodeName].pods.push(podName);
+                        state.nodeHealth[nodeForHealth].warnings++;
+                        if (!state.nodeHealth[nodeForHealth].pods.includes(podName)) {
+                            state.nodeHealth[nodeForHealth].pods.push(podName);
                         }
+                    }
+                }
+
+                // Track REST API failures (even at INFO level) for the summary
+                if (lineCategory === 'rest-api-failures') {
+                    state.errorCategories['rest-api-failures'].count++;
+                    if (!state.errorCategories['rest-api-failures'].pods.includes(podName)) {
+                        state.errorCategories['rest-api-failures'].pods.push(podName);
                     }
                 }
 
@@ -1259,29 +1706,152 @@
             return parsed;
         }
 
-        // Categorize errors by type
-        function categorizeError(line, podName) {
-            let category = 'other';
-            
-            if (line.includes('HSPC0x0000c008') || line.includes('device detection')) {
-                category = 'device-detection';
-            } else if (line.includes('HSPC0x00009002') || line.includes('failed to execute the command')) {
-                category = 'scsi-failures';
-            } else if (line.includes('NodeStageVolume') || line.includes('NodeUnstageVolume') || 
-                       line.includes('ControllerPublish') || line.includes('ControllerUnpublish') ||
-                       line.includes('NodeExpandVolume') || line.includes('ControllerExpandVolume')) {
-                category = 'volume-operations';
-            } else if (line.includes('multipath') || line.includes('multipathd')) {
-                category = 'multipath-issues';
-            } else if (line.includes('connection') || line.includes('connectivity') || 
-                       line.includes('timeout') || line.includes('unreachable')) {
-                category = 'connectivity';
+        // Determine the error category for a log line (optimized)
+        function determineCategory(line, level) {
+            // Only categorize ERROR level lines and REST API failures at INFO level
+            if (level !== 'ERROR' && level !== 'INFO') {
+                return null;
             }
             
-            state.errorCategories[category].count++;
-            if (!state.errorCategories[category].pods.includes(podName)) {
-                state.errorCategories[category].pods.push(podName);
+            // Check for HSPC error codes first (fastest - most specific patterns)
+            // Use indexOf for better performance than includes
+            if (line.indexOf('HSPC0x') !== -1) {
+                if (line.indexOf('HSPC0x0000c037') !== -1 || line.indexOf('HSPC0x0000b00a') !== -1) {
+                    return 'snapshot-operations';
+                }
+                if (line.indexOf('HSPC0x0000c03b') !== -1 || line.indexOf('HSPC0x0000c002') !== -1 || line.indexOf('HSPC0x0000101e') !== -1) {
+                    return 'configuration-errors';
+                }
+                if (line.indexOf('HSPC0x0000c008') !== -1 || line.indexOf('HSPC0x0000900a') !== -1) {
+                    return 'device-detection';
+                }
+                if (line.indexOf('HSPC0x00009002') !== -1) {
+                    return 'scsi-failures';
+                }
+                if (line.indexOf('HSPC0x00001022') !== -1) {
+                    return 'storage-feature-errors';
+                }
+                if (line.indexOf('HSPC0x00001007') !== -1 || line.indexOf('HSPC0x00001025') !== -1) {
+                    return 'permission-errors';
+                }
+                if (line.indexOf('HSPC0x0000d001') !== -1) {
+                    return 'multipath-issues';
+                }
             }
+            
+            // Check for REST API failures (INFO level tracking)
+            if (level === 'INFO' && line.indexOf('COMMON_RESTAPI') !== -1) {
+                if ((line.indexOf('"state":"Failed"') !== -1 && line.indexOf('"error":{') !== -1) ||
+                    (line.indexOf('"messageId":') !== -1 && line.indexOf('"error":') !== -1)) {
+                    return 'rest-api-failures';
+                }
+                return null; // Don't categorize other INFO lines
+            }
+            
+            // From here on, only ERROR level lines
+            if (level !== 'ERROR') {
+                return null;
+            }
+            
+            // Check common patterns in order of frequency
+            // Snapshot operations
+            if (line.indexOf('snapshot') !== -1) {
+                if (line.indexOf('serial number must be specified') !== -1 ||
+                    line.indexOf('specify serial number in volume snapshot class') !== -1 ||
+                    line.indexOf('failed to take snapshot') !== -1 ||
+                    line.indexOf('CreateSnapshot') !== -1 ||
+                    line.indexOf('SnapshotContent') !== -1 ||
+                    line.indexOf('VolumeSnapshot') !== -1 ||
+                    line.indexOf('specified copy group does not exist') !== -1 ||
+                    (line.indexOf('could not sync content') !== -1)) {
+                    return 'snapshot-operations';
+                }
+            }
+            
+            // Volume operations
+            if (line.indexOf('Volume') !== -1 || line.indexOf('volume') !== -1) {
+                if (line.indexOf('ProvisioningFailed') !== -1 ||
+                    line.indexOf('VolumeResizeFailed') !== -1 ||
+                    line.indexOf('CreateVolume failed') !== -1 ||
+                    line.indexOf('failed to provision') !== -1 ||
+                    (line.indexOf('resize') !== -1 && line.indexOf('failed') !== -1) ||
+                    line.indexOf('VolumeAttachment') !== -1 ||
+                    line.indexOf('NodeStageVolume') !== -1 ||
+                    line.indexOf('NodeUnstageVolume') !== -1 ||
+                    line.indexOf('NodeExpandVolume') !== -1 ||
+                    line.indexOf('ControllerExpandVolume') !== -1) {
+                    return 'volume-operations';
+                }
+                if (line.indexOf('the volume ID is invalid') !== -1) {
+                    return 'configuration-errors';
+                }
+            }
+            
+            // Attach/detach operations
+            if (line.indexOf('attach') !== -1 || line.indexOf('Attach') !== -1) {
+                if (line.indexOf('failed to') !== -1 || line.indexOf('Error processing') !== -1) {
+                    return 'volume-operations';
+                }
+            }
+            if (line.indexOf('ControllerPublish') !== -1 || line.indexOf('ControllerUnpublish') !== -1) {
+                return 'volume-operations';
+            }
+            
+            // Configuration and secrets
+            if (line.indexOf('secret') !== -1 || line.indexOf('Secret') !== -1) {
+                if (line.indexOf('not found') !== -1 || line.indexOf('failed to load') !== -1 ||
+                    line.indexOf('required parameter') !== -1 || line.indexOf('primarySerial needs to be specified') !== -1) {
+                    return 'configuration-errors';
+                }
+            }
+            
+            // Multipath
+            if (line.indexOf('multipath') !== -1 || line.indexOf('getDeviceFileFromMultipathd') !== -1) {
+                return 'multipath-issues';
+            }
+            
+            // Device detection and file system
+            if (line.indexOf('device detection') !== -1 ||
+                (line.indexOf('/sys/block/') !== -1 && (line.indexOf('device/vendor') !== -1 || line.indexOf('file does not exist') !== -1))) {
+                return 'device-detection';
+            }
+            
+            // Unsupported features
+            if (line.indexOf('code = Unimplemented') !== -1 ||
+                line.indexOf('specifying data source for this storage type is not supported') !== -1) {
+                return 'unsupported-features';
+            }
+            
+            // Storage feature errors
+            if (line.indexOf('incompatible combination of storage features') !== -1 ||
+                (line.indexOf('SSB1') !== -1 && line.indexOf('SSB2') !== -1) ||
+                line.indexOf('KART30000-E') !== -1) {
+                return 'storage-feature-errors';
+            }
+            
+            // Permission errors
+            if (line.indexOf('permissions for the resource group') !== -1 ||
+                line.indexOf('http status unauthorized') !== -1 ||
+                line.indexOf('check the user name and password') !== -1 ||
+                line.indexOf('KART30061-E') !== -1) {
+                return 'permission-errors';
+            }
+            
+            // Configuration errors (continued)
+            if (line.indexOf('the specified resource does not exist') !== -1 ||
+                line.indexOf('Specified object does not exist') !== -1 ||
+                line.indexOf('failed to execute the command') !== -1) {
+                return 'configuration-errors';
+            }
+            
+            // Connectivity
+            if (line.indexOf('connection') !== -1 || line.indexOf('connectivity') !== -1 ||
+                line.indexOf('timeout') !== -1 || line.indexOf('unreachable') !== -1) {
+                return 'connectivity';
+            }
+            
+            // Default for uncategorized errors
+            return 'other';
         }
 
         // Track volume operations from CSI responses
@@ -1450,19 +2020,227 @@
             }
         }
 
-        // Parse Cluster Context
+        // Parse Cluster Context (lightweight - only essential stats, single-pass optimized)
         function parseClusterContext(content) {
-            // Extract platform
-            if (content.includes('Platform: OpenShift')) {
-                state.stats.platform = 'OpenShift';
-            } else if (content.includes('Platform: Kubernetes')) {
-                state.stats.platform = 'Kubernetes';
+            // Single-pass extraction using indexOf for speed
+            let nodeCount = 0;
+            let platformSet = false;
+            let versionSet = false;
+            
+            // Split once and iterate through lines
+            const lines = content.split('\n');
+            
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                
+                // Extract platform (only need to check once)
+                if (!platformSet) {
+                    if (line.indexOf('Platform: OpenShift') !== -1) {
+                        state.stats.platform = 'OpenShift';
+                        platformSet = true;
+                    } else if (line.indexOf('Platform: Kubernetes') !== -1) {
+                        state.stats.platform = 'Kubernetes';
+                        platformSet = true;
+                    }
+                }
+                
+                // Extract platform version
+                if (!versionSet) {
+                    if (line.indexOf('"openshiftVersion"') !== -1) {
+                        const match = line.match(/"openshiftVersion"\s*:\s*"([^"]+)"/);
+                        if (match) {
+                            state.stats.platformVersion = match[1];
+                            versionSet = true;
+                        }
+                    } else if (line.indexOf('Server Version:') !== -1) {
+                        const match = line.match(/Server Version:\s*(\S+)/);
+                        if (match) {
+                            state.stats.platformVersion = match[1];
+                            versionSet = true;
+                        }
+                    }
+                }
+                
+                // Count Ready nodes (faster than regex on full content)
+                if (line.indexOf('Ready') !== -1 && /^\w+.*\s+Ready\s+/.test(line)) {
+                    nodeCount++;
+                }
+                
+                // Early exit if we found everything (optimization)
+                if (platformSet && versionSet && nodeCount > 0 && i > 100) {
+                    // Continue counting nodes but can stop checking platform/version
+                }
             }
-
-            // Count nodes
-            const nodeMatches = content.match(/^\w+.*\s+Ready\s+/gm);
-            if (nodeMatches) {
-                state.stats.nodeCount = nodeMatches.length;
+            
+            state.stats.nodeCount = nodeCount;
+            
+            // Note: Pod metadata and storage classes are parsed lazily when their tabs are first viewed
+        }
+        
+        // Lazy parse pod metadata (called when Health tab is first viewed)
+        function parsePodMetadata() {
+            if (state.lazyParsed.podMetadata || !state.clusterContext) {
+                return;
+            }
+            
+            const lines = state.clusterContext.split('\n');
+            let currentPod = null;
+            let foundStartTime = false;
+            let foundNode = false;
+            
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                
+                // Match pod description headers like "=== hspc-csi-controller-8d78c8bf9-lrsgw ==="
+                const podHeaderMatch = line.match(/^===\s+(hspc-csi-[^\s]+)\s+===/);
+                if (podHeaderMatch) {
+                    currentPod = podHeaderMatch[1];
+                    foundStartTime = false;
+                    foundNode = false;
+                    continue;
+                }
+                
+                if (currentPod) {
+                    // Match "Node:" lines (format: "Node:             worker1.dc1.ocp.ucp.acoe.local/10.25.8.57")
+                    if (!foundNode && line.indexOf('Node:') === 0) {
+                        const nodeMatch = line.match(/Node:\s+([^\/\s]+)/);
+                        if (nodeMatch) {
+                            const nodeName = nodeMatch[1].trim();
+                            // Store in podHealth if it exists, otherwise create entry
+                            if (!state.podHealth[currentPod]) {
+                                state.podHealth[currentPod] = {
+                                    errors: 0,
+                                    warnings: 0,
+                                    container: currentPod,
+                                    node: null
+                                };
+                            }
+                            state.podHealth[currentPod].node = nodeName;
+                            foundNode = true;
+                        }
+                    }
+                    
+                    // Match "Start Time:" lines
+                    if (!foundStartTime && line.indexOf('Start Time:') === 0) {
+                        const startTimeMatch = line.match(/Start Time:\s+(.+)$/);
+                        if (startTimeMatch) {
+                            const startTimeStr = startTimeMatch[1].trim();
+                            // Parse the start time (format: "Fri, 21 Nov 2025 10:56:17 -0600")
+                            const startTime = new Date(startTimeStr);
+                            
+                            if (!isNaN(startTime.getTime())) {
+                                // Store in podHealth if it exists, otherwise create entry
+                                if (!state.podHealth[currentPod]) {
+                                    state.podHealth[currentPod] = {
+                                        errors: 0,
+                                        warnings: 0,
+                                        container: currentPod,
+                                        node: null
+                                    };
+                                }
+                                state.podHealth[currentPod].startTime = startTime;
+                                foundStartTime = true;
+                            }
+                        }
+                    }
+                    
+                    // If we found both, reset for next pod
+                    if (foundStartTime && foundNode) {
+                        currentPod = null;
+                    }
+                }
+            }
+            
+            state.lazyParsed.podMetadata = true;
+        }
+        
+        // Lazy parse storage classes (called when Configuration tab is first viewed)
+        function lazyParseStorageClasses() {
+            if (state.lazyParsed.storageClasses || !state.clusterContext) {
+                return;
+            }
+            
+            parseStorageClasses(state.clusterContext);
+            state.lazyParsed.storageClasses = true;
+        }
+        
+        // Parse Storage Classes from cluster context
+        function parseStorageClasses(content) {
+            state.config.storageClasses = [];
+            
+            // Find the "=== HSPC StorageClasses ===" section
+            const scSectionMatch = content.match(/===\s+HSPC StorageClasses\s+===\n([\s\S]*?)(?:\n===|$)/);
+            if (!scSectionMatch) return;
+            
+            const scSection = scSectionMatch[1];
+            
+            // Split by "allowVolumeExpansion:" which marks the beginning of each StorageClass
+            const scBlocks = scSection.split(/(?=^allowVolumeExpansion:)/m).filter(b => b.trim() && b.includes('kind: StorageClass'));
+            
+            for (const block of scBlocks) {
+                try {
+                    const sc = {
+                        name: null,
+                        isDefault: false,
+                        type: 'standard', // 'standard' or 'stretched'
+                        provisioner: null,
+                        reclaimPolicy: null,
+                        volumeBindingMode: null,
+                        allowVolumeExpansion: false,
+                        parameters: {},
+                        creationTimestamp: null
+                    };
+                    
+                    // Parse basic fields
+                    const nameMatch = block.match(/^\s*name:\s*(.+)$/m);
+                    if (nameMatch) sc.name = nameMatch[1].trim();
+                    
+                    const provisionerMatch = block.match(/^provisioner:\s*(.+)$/m);
+                    if (provisionerMatch) sc.provisioner = provisionerMatch[1].trim();
+                    
+                    const reclaimMatch = block.match(/^reclaimPolicy:\s*(.+)$/m);
+                    if (reclaimMatch) sc.reclaimPolicy = reclaimMatch[1].trim();
+                    
+                    const bindingMatch = block.match(/^volumeBindingMode:\s*(.+)$/m);
+                    if (bindingMatch) sc.volumeBindingMode = bindingMatch[1].trim();
+                    
+                    const expansionMatch = block.match(/^allowVolumeExpansion:\s*(.+)$/m);
+                    if (expansionMatch) sc.allowVolumeExpansion = expansionMatch[1].trim() === 'true';
+                    
+                    const defaultMatch = block.match(/storageclass\.kubernetes\.io\/is-default-class:\s*"true"/);
+                    if (defaultMatch) sc.isDefault = true;
+                    
+                    const timestampMatch = block.match(/creationTimestamp:\s*"([^"]+)"/);
+                    if (timestampMatch) sc.creationTimestamp = timestampMatch[1].trim();
+                    
+                    // Parse parameters section
+                    const paramsMatch = block.match(/^parameters:\s*\n((?:^\s{2}\S.*\n?)+)/m);
+                    if (paramsMatch) {
+                        const paramsSection = paramsMatch[1];
+                        const paramLines = paramsSection.split('\n').filter(l => l.trim());
+                        
+                        for (const line of paramLines) {
+                            const paramMatch = line.match(/^\s{2}(\S+):\s*(.+)$/);
+                            if (paramMatch) {
+                                const key = paramMatch[1].trim();
+                                const value = paramMatch[2].trim().replace(/^"|"$/g, ''); // Remove quotes
+                                sc.parameters[key] = value;
+                            }
+                        }
+                    }
+                    
+                    // Determine if this is a stretched (GAD) storage class
+                    if (sc.parameters.replicationType === 'stretched') {
+                        sc.type = 'stretched';
+                    }
+                    
+                    // Only add if we got a name
+                    if (sc.name) {
+                        state.config.storageClasses.push(sc);
+                    }
+                } catch (e) {
+                    console.error('Error parsing storage class block:', e);
+                }
             }
         }
 
@@ -1470,9 +2248,11 @@
         function updateUI() {
             updateStats();
             updatePodList();
+            renderHealthAndDiagnostics();
             renderClusterInfo();
             renderConfiguration();
             document.getElementById('bundleInfo').textContent = `${Object.keys(state.logs).length} pods loaded`;
+            document.getElementById('bundleTimestamp').textContent = state.bundleTimestamp;
         }
 
         // Update Stats
@@ -1481,6 +2261,11 @@
             document.getElementById('totalWarnings').textContent = state.stats.totalWarnings;
             document.getElementById('totalLogs').textContent = state.stats.totalLogs.toLocaleString();
             document.getElementById('platform').textContent = state.stats.platform;
+            document.getElementById('platformVersion').textContent = state.stats.platformVersion;
+            document.getElementById('hspcVersion').textContent = state.stats.hspcVersion;
+            document.getElementById('hspccVersion').textContent = state.stats.hspccVersion;
+            document.getElementById('gitCommit').textContent = state.stats.gitCommit;
+            document.getElementById('goVersion').textContent = state.stats.goVersion;
             document.getElementById('nodeCount').textContent = state.stats.nodeCount;
         }
 
@@ -1514,12 +2299,23 @@
                 </div>
             `;
             
-            div.addEventListener('click', () => {
+            div.addEventListener('click', async () => {
                 state.currentPod = id;
                 document.querySelectorAll('.pod-item').forEach(item => item.classList.remove('active'));
                 div.classList.add('active');
                 invalidateCache();
-                renderLogs();
+                
+                // Show loading indicator
+                showLoading(`Loading logs for ${name}...`);
+                
+                // Allow UI to update before rendering
+                await new Promise(resolve => setTimeout(resolve, 50));
+                
+                // Wait for rendering to complete
+                await renderLogs();
+                
+                // Hide loading after rendering is done
+                hideLoading();
             });
             
             return div;
@@ -1532,15 +2328,8 @@
                 return state.filteredCache;
             }
 
-            let allLogs = [];
-
-            if (state.currentPod === 'all') {
-                for (const [podName, logs] of Object.entries(state.logs)) {
-                    allLogs = allLogs.concat(logs);
-                }
-            } else {
-                allLogs = state.logs[state.currentPod] || [];
-            }
+            // Use pre-concatenated logs for "all" view (performance optimization)
+            let allLogs = state.currentPod === 'all' ? state.allLogs : (state.logs[state.currentPod] || []);
 
             // Apply filters
             let filtered = allLogs;
@@ -1556,6 +2345,10 @@
                 );
             }
 
+            if (state.categoryFilter) {
+                filtered = filtered.filter(log => log.category === state.categoryFilter);
+            }
+
             // Cache the result
             state.filteredCache = filtered;
             return filtered;
@@ -1568,7 +2361,7 @@
         }
 
         // Virtual Scrolling: Render only visible logs
-        function renderLogs() {
+        async function renderLogs() {
             const filtered = getFilteredLogs();
 
             // Render empty state
@@ -1586,7 +2379,7 @@
             // Virtual scrolling only for truly massive datasets
             if (filtered.length < 500000) {
                 logContent.classList.remove('virtual-scroll-mode');
-                renderAllLogs(filtered);
+                await renderAllLogs(filtered);
                 return;
             }
 
@@ -1595,36 +2388,39 @@
             renderVirtualLogs(filtered);
         }
 
-        // Render all logs (for smaller datasets)
+        // Render all logs (for smaller datasets) - returns Promise when done
         function renderAllLogs(filtered) {
-            const fragment = document.createDocumentFragment();
-            
-            // Batch process in chunks to avoid blocking UI
-            const chunkSize = 1000;
-            let currentIndex = 0;
-
-            function renderChunk() {
-                const end = Math.min(currentIndex + chunkSize, filtered.length);
+            return new Promise((resolve) => {
+                const fragment = document.createDocumentFragment();
                 
-                for (let i = currentIndex; i < end; i++) {
-                    const log = filtered[i];
-                    const div = createLogElement(log);
-                    fragment.appendChild(div);
+                // Batch process in chunks to avoid blocking UI
+                const chunkSize = 1000;
+                let currentIndex = 0;
+
+                function renderChunk() {
+                    const end = Math.min(currentIndex + chunkSize, filtered.length);
+                    
+                    for (let i = currentIndex; i < end; i++) {
+                        const log = filtered[i];
+                        const div = createLogElement(log);
+                        fragment.appendChild(div);
+                    }
+
+                    currentIndex = end;
+
+                    if (currentIndex < filtered.length) {
+                        // Schedule next chunk
+                        requestAnimationFrame(renderChunk);
+                    } else {
+                        // Done - append all at once
+                        logContent.innerHTML = '';
+                        logContent.appendChild(fragment);
+                        resolve(); // Signal completion
+                    }
                 }
 
-                currentIndex = end;
-
-                if (currentIndex < filtered.length) {
-                    // Schedule next chunk
-                    requestAnimationFrame(renderChunk);
-                } else {
-                    // Done - append all at once
-                    logContent.innerHTML = '';
-                    logContent.appendChild(fragment);
-                }
-            }
-
-            renderChunk();
+                renderChunk();
+            });
         }
 
         // Virtual scrolling for large datasets
@@ -1706,10 +2502,34 @@
             
             const hostCount = Object.keys(state.config.hosts).length;
             const volumeCount = Object.keys(state.config.volumes).length;
-            const portCount = Object.keys(state.config.ports).length;
-            const arrayCount = Object.keys(state.config.arrays).length;
+            const storageClassCount = state.config.storageClasses?.length || 0;
+            
+            // Extract arrays and ports from storage classes (definitive source)
+            const arraysFromSC = new Set();
+            const portsFromSC = new Set();
+            
+            if (state.config.storageClasses) {
+                state.config.storageClasses.forEach(sc => {
+                if (sc.parameters.serialNumber) {
+                    arraysFromSC.add(sc.parameters.serialNumber);
+                }
+                if (sc.parameters.portID) {
+                    sc.parameters.portID.split(',').forEach(p => portsFromSC.add(p.trim()));
+                }
+                if (sc.parameters.primaryPortID) {
+                    sc.parameters.primaryPortID.split(',').forEach(p => portsFromSC.add(p.trim()));
+                }
+                if (sc.parameters.secondaryPortID) {
+                    sc.parameters.secondaryPortID.split(',').forEach(p => portsFromSC.add(p.trim()));
+                }
+                });
+            }
+            
+            // Use storage class data if available, otherwise fall back to log-parsed data
+            const arrayCount = arraysFromSC.size > 0 ? arraysFromSC.size : Object.keys(state.config.arrays).length;
+            const portCount = portsFromSC.size > 0 ? portsFromSC.size : Object.keys(state.config.ports).length;
 
-            if (hostCount === 0 && volumeCount === 0 && arrayCount === 0) {
+            if (hostCount === 0 && volumeCount === 0 && arrayCount === 0 && storageClassCount === 0) {
                 configContent.innerHTML = `
                     <div class="empty-state">
                         <div class="empty-state-icon">📋</div>
@@ -1764,38 +2584,88 @@
             // Summary Cards
             html += `
                 <div class="config-grid">
-                    <div class="config-card">
-                        <div class="config-card-title">Storage Arrays</div>
+                    <div class="config-card clickable-card" onclick="scrollToSection('storage-arrays-section')" title="Click to view Storage Arrays">
+                        <div class="config-card-title">VSP Storage Arrays</div>
                         <div class="config-card-value">${arrayCount}</div>
                     </div>
-                    <div class="config-card">
+                    <div class="config-card clickable-card" onclick="scrollToSection('storage-classes-section')" title="Click to view Storage Classes">
+                        <div class="config-card-title">Storage Classes</div>
+                        <div class="config-card-value">${storageClassCount}</div>
+                    </div>
+                    <div class="config-card clickable-card" onclick="scrollToSection('hosts-wwns-section')" title="Click to view Hosts & WWNs">
                         <div class="config-card-title">Total Hosts (WWNs)</div>
                         <div class="config-card-value">${hostCount}</div>
                     </div>
-                    <div class="config-card">
+                    <div class="config-card clickable-card" onclick="scrollToSection('volumes-section')" title="Click to view Volumes & LUN Mappings">
                         <div class="config-card-title">Total Volumes</div>
                         <div class="config-card-value">${volumeCount}</div>
                     </div>
-                    <div class="config-card">
+                    <div class="config-card clickable-card" onclick="scrollToSection('ports-section')" title="Click to view Port Usage Summary">
                         <div class="config-card-title">Storage Ports Used</div>
                         <div class="config-card-value">${portCount}</div>
                     </div>
                 </div>
             `;
 
-            // Storage Arrays Table
+            // Storage Arrays Table (from storage classes + logs)
             if (arrayCount > 0) {
+                // Build array info from storage classes (definitive source)
+                const arraysInfo = new Map();
+                
+                if (state.config.storageClasses) {
+                    state.config.storageClasses.forEach(sc => {
+                    const serial = sc.parameters.serialNumber;
+                    if (serial) {
+                        if (!arraysInfo.has(serial)) {
+                            arraysInfo.set(serial, {
+                                serial: serial,
+                                storageClasses: [],
+                                ports: new Set(),
+                                volumes: new Set(),
+                                errors: 0,
+                                warnings: 0
+                            });
+                        }
+                        const info = arraysInfo.get(serial);
+                        info.storageClasses.push(sc.name);
+                        
+                        // Collect ports
+                        if (sc.parameters.portID) {
+                            sc.parameters.portID.split(',').forEach(p => info.ports.add(p.trim()));
+                        }
+                        if (sc.parameters.primaryPortID) {
+                            sc.parameters.primaryPortID.split(',').forEach(p => info.ports.add(p.trim()));
+                        }
+                        if (sc.parameters.secondaryPortID) {
+                            sc.parameters.secondaryPortID.split(',').forEach(p => info.ports.add(p.trim()));
+                        }
+                    }
+                    });
+                }
+                
+                // Merge with log-parsed data if available
+                Object.values(state.config.arrays).forEach(array => {
+                    if (arraysInfo.has(array.serial)) {
+                        const info = arraysInfo.get(array.serial);
+                        info.volumes = array.volumes;
+                        info.errors = array.errors;
+                        info.warnings = array.warnings;
+                        // Merge ports from logs
+                        array.ports.forEach(p => info.ports.add(p));
+                    }
+                });
+                
                 html += `
-                    <div class="config-section">
+                    <div id="storage-arrays-section" class="config-section">
                         <div class="config-section-header">
-                            <span>📦 Storage Arrays</span>
-                            <span class="config-section-count">${arrayCount} array(s)</span>
+                            <span>📦 VSP Storage Arrays</span>
+                            <span class="config-section-count">${arraysInfo.size} array(s)</span>
                         </div>
                         <table class="config-table">
                             <thead>
                                 <tr>
                                     <th>Serial Number</th>
-                                    <th>Volumes</th>
+                                    <th>Storage Classes</th>
                                     <th>Ports</th>
                                     <th>Status</th>
                                 </tr>
@@ -1803,7 +2673,7 @@
                             <tbody>
                 `;
 
-                const sortedArrays = Object.values(state.config.arrays).sort((a, b) => 
+                const sortedArrays = Array.from(arraysInfo.values()).sort((a, b) => 
                     a.serial.localeCompare(b.serial)
                 );
 
@@ -1815,11 +2685,12 @@
                     if (!statusBadges) statusBadges = '<span style="color: var(--success-green);">✓ OK</span>';
 
                     const ports = Array.from(array.ports).sort().join(', ');
+                    const scList = array.storageClasses.join(', ');
                     
                     html += `
                         <tr class="${rowClass}">
                             <td><span class="array-serial">${array.serial}</span></td>
-                            <td><strong>${array.volumes.size}</strong> volumes</td>
+                            <td style="font-size: 11px; color: var(--text-secondary);">${scList || '-'}</td>
                             <td style="font-size: 11px;">${ports}</td>
                             <td>${statusBadges}</td>
                         </tr>
@@ -1832,11 +2703,12 @@
                     </div>
                 `;
             }
+            
 
             // Hosts & WWNs Table
             if (hostCount > 0) {
                 html += `
-                    <div class="config-section">
+                    <div id="hosts-wwns-section" class="config-section">
                         <div class="config-section-header">
                             <span>🔌 Hosts & WWNs</span>
                             <span class="config-section-count">${hostCount} hosts</span>
@@ -1887,11 +2759,14 @@
                     </div>
                 `;
             }
+            
+            // Storage Classes (from cluster-context)
+            html += renderStorageClassesSection();
 
             // Volumes & LUNs Table
             if (volumeCount > 0) {
                 html += `
-                    <div class="config-section">
+                    <div id="volumes-section" class="config-section">
                         <div class="config-section-header">
                             <span>💾 Volumes & LUN Mappings</span>
                             <span class="config-section-count">${volumeCount} volumes</span>
@@ -1974,7 +2849,7 @@
             // Port Usage Summary
             if (portCount > 0) {
                 html += `
-                    <div class="config-section">
+                    <div id="ports-section" class="config-section">
                         <div class="config-section-header">
                             <span>🔌 Port Usage Summary</span>
                             <span class="config-section-count">${portCount} ports</span>
@@ -1991,9 +2866,12 @@
                             <tbody>
                 `;
 
-                const sortedPorts = Object.values(state.config.ports).sort((a, b) => 
-                    a.name.localeCompare(b.name)
-                );
+                // Sort by array serial first, then port name (groups ports by array)
+                const sortedPorts = Object.values(state.config.ports).sort((a, b) => {
+                    const arrayCompare = (a.arraySerial || '').localeCompare(b.arraySerial || '');
+                    if (arrayCompare !== 0) return arrayCompare;
+                    return a.name.localeCompare(b.name);
+                });
 
                 for (const port of sortedPorts) {
                     const rowClass = port.errors > 0 ? 'row-with-error' : (port.warnings > 0 ? 'row-with-warning' : '');
@@ -2003,12 +2881,12 @@
                     if (port.warnings > 0) statusBadges += `<span class="issue-badge warning-badge">${port.warnings} WARNING${port.warnings > 1 ? 'S' : ''}</span>`;
                     if (!statusBadges) statusBadges = '<span style="color: var(--text-secondary); font-size: 11px;">OK</span>';
 
-                    const arrayShort = port.arraySerial ? '...' + port.arraySerial.substring(port.arraySerial.length - 6) : '-';
+                    const arrayShort = port.arraySerial ? port.arraySerial.substring(port.arraySerial.length - 6) : '-';
 
                     html += `
                         <tr class="${rowClass}">
                             <td><span class="port-badge">${port.name}</span></td>
-                            <td style="font-size: 10px; color: var(--text-secondary);">${arrayShort}</td>
+                            <td style="font-size: 11px; color: var(--text-secondary);">${arrayShort}</td>
                             <td><strong>${port.volumes.size}</strong> volumes</td>
                             <td>${statusBadges}</td>
                         </tr>
@@ -2021,9 +2899,142 @@
                     </div>
                 `;
             }
-
+            
             html += '</div>';
             configContent.innerHTML = html;
+        }
+        
+        // Render Storage Classes section (extracted for reuse)
+        function renderStorageClassesSection() {
+            if (!state.config.storageClasses || state.config.storageClasses.length === 0) return '';
+            
+            const standardClasses = state.config.storageClasses.filter(sc => sc.type === 'standard');
+            const stretchedClasses = state.config.storageClasses.filter(sc => sc.type === 'stretched');
+            
+            let html = '';
+            
+            // Standard Storage Classes
+            if (standardClasses.length > 0) {
+                html += `
+                    <div id="storage-classes-section" class="config-section">
+                        <div class="config-section-header">
+                            <span>📝 Standard StorageClasses</span>
+                            <span class="config-section-count">${standardClasses.length} storageClass(es)</span>
+                        </div>
+                        <table class="config-table">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Serial#</th>
+                                    <th>Pool</th>
+                                    <th>Ports</th>
+                                    <th>Connection</th>
+                                    <th>Details</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+                
+                for (const sc of standardClasses) {
+                    const isDefault = sc.isDefault ? '<span style="background: #ffc107; color: #000; padding: 2px 6px; border-radius: 3px; font-size: 9px; font-weight: 600; margin-left: 8px;">DEFAULT</span>' : '';
+                    const serialNum = sc.parameters.serialNumber || '-';
+                    const poolId = sc.parameters.poolID || '-';
+                    const ports = sc.parameters.portID || '-';
+                    const connType = sc.parameters.connectionType || '-';
+                    const fsType = sc.parameters['csi.storage.k8s.io/fstype'] || '-';
+                    const efficiency = sc.parameters.storageEfficiency || '-';
+                    const expansion = sc.allowVolumeExpansion ? '✓' : '✗';
+                    const reclaim = sc.reclaimPolicy || '-';
+                    
+                    html += `
+                        <tr>
+                            <td><strong>${sc.name}</strong>${isDefault}</td>
+                            <td style="font-family: monospace; font-size: 11px;">${serialNum}</td>
+                            <td>${poolId}</td>
+                            <td style="font-size: 10px;">${ports}</td>
+                            <td><span class="port-badge">${connType.toUpperCase()}</span></td>
+                            <td style="font-size: 11px; color: var(--text-secondary);">
+                                FS: ${fsType} • Efficiency: ${efficiency} • Reclaim: ${reclaim} • Expansion: ${expansion}
+                            </td>
+                        </tr>
+                    `;
+                }
+                
+                html += `
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+            
+            // Stretched/GAD StorageClasses
+            if (stretchedClasses.length > 0) {
+                html += `
+                    <div class="config-section">
+                        <div class="config-section-header">
+                            <span>🔄 Stretched/GAD StorageClasses</span>
+                            <span class="config-section-count">${stretchedClasses.length} storageClass(es)</span>
+                        </div>
+                        <table class="config-table">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Primary Array</th>
+                                    <th>Primary Pool</th>
+                                    <th>Primary Ports</th>
+                                    <th>Secondary Array</th>
+                                    <th>Secondary Pool</th>
+                                    <th>Secondary Ports</th>
+                                    <th>Quorum</th>
+                                    <th>Details</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+                
+                for (const sc of stretchedClasses) {
+                    const isDefault = sc.isDefault ? '<span style="background: #ffc107; color: #000; padding: 2px 6px; border-radius: 3px; font-size: 9px; font-weight: 600; margin-left: 8px;">DEFAULT</span>' : '';
+                    
+                    // Try to get array serials from parameters (they might be in the secret)
+                    const primaryArray = sc.parameters.primarySerial || sc.parameters.primarySerialNumber || 
+                                        '<span style="color: var(--text-secondary); font-size: 10px;">In secret</span>';
+                    const secondaryArray = sc.parameters.secondarySerial || sc.parameters.secondarySerialNumber || 
+                                          '<span style="color: var(--text-secondary); font-size: 10px;">In secret</span>';
+                    
+                    const primaryPool = sc.parameters.primaryPoolID || '-';
+                    const primaryPorts = sc.parameters.primaryPortID || '-';
+                    const secondaryPool = sc.parameters.secondaryPoolID || '-';
+                    const secondaryPorts = sc.parameters.secondaryPortID || '-';
+                    const quorum = sc.parameters.quorumID || '-';
+                    const connType = sc.parameters.connectionType || '-';
+                    const expansion = sc.allowVolumeExpansion ? '✓' : '✗';
+                    const reclaim = sc.reclaimPolicy || '-';
+                    
+                    html += `
+                        <tr>
+                            <td><strong>${sc.name}</strong>${isDefault}</td>
+                            <td style="font-family: monospace; font-size: 11px;">${primaryArray}</td>
+                            <td>${primaryPool}</td>
+                            <td style="font-size: 10px;">${primaryPorts}</td>
+                            <td style="font-family: monospace; font-size: 11px;">${secondaryArray}</td>
+                            <td>${secondaryPool}</td>
+                            <td style="font-size: 10px;">${secondaryPorts}</td>
+                            <td style="text-align: center;">${quorum}</td>
+                            <td style="font-size: 11px; color: var(--text-secondary);">
+                                Connection: <span class="port-badge">${connType.toUpperCase()}</span> • Reclaim: ${reclaim} • Expansion: ${expansion}
+                            </td>
+                        </tr>
+                    `;
+                }
+                
+                html += `
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+            
+            return html;
         }
 
         // Render Cluster Info
@@ -2079,6 +3090,9 @@
             // Add pod health
             html += renderPodHealth();
             
+            // Add recent events (from cluster context)
+            html += renderRecentEvents();
+            
             // Add node health
             if (totalNodes > 0) {
                 html += renderNodeHealth();
@@ -2096,7 +3110,12 @@
         function renderErrorCategories() {
             const categories = Object.entries(state.errorCategories)
                 .filter(([_, data]) => data.count > 0)
-                .sort((a, b) => b[1].count - a[1].count);
+                .sort((a, b) => {
+                    // Sort alphabetically by category name
+                    const nameA = a[0].split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                    const nameB = b[0].split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                    return nameA.localeCompare(nameB);
+                });
             
             if (categories.length === 0) {
                 return '';
@@ -2104,7 +3123,7 @@
             
             let html = `
                 <div class="config-section">
-                    <h3>🔍 Error Categories</h3>
+                    <h3>🔍 Error Categories <span style="font-size: 12px; font-weight: normal; color: var(--text-secondary);">(Click a row to view logs)</span></h3>
                     <table class="config-table">
                         <thead>
                             <tr>
@@ -2120,7 +3139,7 @@
             for (const [category, data] of categories) {
                 const categoryName = category.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
                 html += `
-                    <tr>
+                    <tr class="clickable-row" onclick="filterByCategory('${category}')" style="cursor: pointer;" title="Click to view these logs">
                         <td><strong>${categoryName}</strong></td>
                         <td style="font-size: 12px; color: #6c757d;">${data.description}</td>
                         <td><span class="error-badge">${data.count}</span></td>
@@ -2138,10 +3157,82 @@
             return html;
         }
 
+        // Calculate and format pod age
+        function formatPodAge(startTime) {
+            if (!startTime) return 'N/A';
+            
+            // Use bundle timestamp if available, otherwise use current time
+            const now = state.bundleTimestamp ? 
+                        new Date(state.bundleName.match(/(\d{8})-(\d{6})/)?.[0].replace(/(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/, '$1-$2-$3T$4:$5:$6') || Date.now()) :
+                        new Date();
+            
+            const ageMs = now - startTime;
+            const ageDays = Math.floor(ageMs / (1000 * 60 * 60 * 24));
+            const ageHours = Math.floor((ageMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+            const ageMinutes = Math.floor((ageMs % (1000 * 60 * 60)) / (1000 * 60));
+            
+            if (ageDays > 0) {
+                return `${ageDays}d ${ageHours}h`;
+            } else if (ageHours > 0) {
+                return `${ageHours}h ${ageMinutes}m`;
+            } else {
+                return `${ageMinutes}m`;
+            }
+        }
+
+        // Group containers by pod
+        function groupContainersByPod() {
+            const podGroups = {};
+            
+            for (const [fullName, health] of Object.entries(state.podHealth)) {
+                // Split by underscore to separate pod name from container name
+                const parts = fullName.split('_');
+                let podName, containerName;
+                
+                if (parts.length > 1) {
+                    podName = parts[0];
+                    containerName = parts.slice(1).join('_');
+                } else {
+                    // No underscore, treat entire name as pod
+                    podName = fullName;
+                    containerName = fullName;
+                }
+                
+                if (!podGroups[podName]) {
+                    // Look up node and startTime from the base pod entry (without container suffix)
+                    // These are set by parseClusterContext for the base pod name
+                    const basePodHealth = state.podHealth[podName];
+                    
+                    podGroups[podName] = {
+                        containers: [],
+                        totalErrors: 0,
+                        totalWarnings: 0,
+                        node: basePodHealth?.node || null,
+                        startTime: basePodHealth?.startTime || health.startTime
+                    };
+                }
+                
+                // Only add as container if it's not the base pod entry
+                if (fullName !== podName) {
+                    podGroups[podName].containers.push({
+                        name: containerName,
+                        errors: health.errors,
+                        warnings: health.warnings
+                    });
+                    
+                    podGroups[podName].totalErrors += health.errors;
+                    podGroups[podName].totalWarnings += health.warnings;
+                }
+            }
+            
+            return podGroups;
+        }
+
         // Render Pod Health
         function renderPodHealth() {
-            const pods = Object.entries(state.podHealth)
-                .sort((a, b) => (b[1].errors + b[1].warnings) - (a[1].errors + a[1].warnings));
+            const podGroups = groupContainersByPod();
+            const pods = Object.entries(podGroups)
+                .sort((a, b) => (b[1].totalErrors + b[1].totalWarnings) - (a[1].totalErrors + a[1].totalWarnings));
             
             if (pods.length === 0) {
                 return '';
@@ -2154,30 +3245,133 @@
                         <thead>
                             <tr>
                                 <th>Pod Name</th>
-                                <th>Container</th>
+                                <th>Containers</th>
                                 <th>Node</th>
+                                <th>Age</th>
                                 <th>Status</th>
                             </tr>
                         </thead>
                         <tbody>
             `;
             
-            for (const [podName, health] of pods) {
+            for (const [podName, podData] of pods) {
                 let statusBadge = '<span class="status-badge status-ok">OK</span>';
-                if (health.errors > 0) {
-                    statusBadge = `<span class="error-badge">${health.errors} ERROR(S)</span>`;
-                } else if (health.warnings > 0) {
-                    statusBadge = `<span class="warning-badge">${health.warnings} WARNING(S)</span>`;
+                if (podData.totalErrors > 0) {
+                    statusBadge = `<span class="error-badge">${podData.totalErrors} ERROR(S)</span>`;
+                } else if (podData.totalWarnings > 0) {
+                    statusBadge = `<span class="warning-badge">${podData.totalWarnings} WARNING(S)</span>`;
                 }
                 
-                const rowClass = health.errors > 0 ? 'error-row' : (health.warnings > 0 ? 'warning-row' : '');
+                const rowClass = podData.totalErrors > 0 ? 'error-row' : (podData.totalWarnings > 0 ? 'warning-row' : '');
+                const age = formatPodAge(podData.startTime);
+                
+                // Build container list with error/warning indicators
+                let containersList = podData.containers.map(c => {
+                    const fullPodName = `${podName}_${c.name}`;
+                    let badge = '';
+                    if (c.errors > 0) {
+                        badge = ` <span onclick="navigateToPodLogs('${fullPodName}', 'ERROR')" style="color: var(--error-red); font-size: 12px; font-weight: 600; cursor: pointer; text-decoration: underline;" title="Click to view error logs">⚠️${c.errors}</span>`;
+                    } else if (c.warnings > 0) {
+                        badge = ` <span onclick="navigateToPodLogs('${fullPodName}', 'WARNING')" style="color: var(--warning-yellow); font-size: 12px; font-weight: 600; cursor: pointer; text-decoration: underline;" title="Click to view warning logs">⚡${c.warnings}</span>`;
+                    }
+                    // Make container name clickable too (shows all logs for that container)
+                    const clickableContainer = `<span onclick="navigateToPodLogs('${fullPodName}', 'ALL')" style="cursor: pointer;" title="Click to view all logs for this container">${c.name}</span>`;
+                    return `${clickableContainer}${badge}`;
+                }).join('<br>');
                 
                 html += `
                     <tr class="${rowClass}">
                         <td><strong>${podName}</strong></td>
-                        <td style="font-size: 12px; color: #6c757d;">${health.container}</td>
-                        <td style="font-size: 12px;">${health.node || 'N/A'}</td>
+                        <td style="font-size: 11px; color: #6c757d; line-height: 1.6;">${containersList}</td>
+                        <td style="font-size: 12px;">${podData.node || 'N/A'}</td>
+                        <td style="font-size: 12px; color: var(--text-secondary);">${age}</td>
                         <td>${statusBadge}</td>
+                    </tr>
+                `;
+            }
+            
+            html += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            return html;
+        }
+
+        // Render Recent Events
+        function renderRecentEvents() {
+            if (!state.clusterContext) {
+                return '';
+            }
+            
+            // Parse cluster sections to find Recent Events
+            const sections = parseClusterSections(state.clusterContext);
+            const recentEventsSection = sections.find(s => s.title === 'Recent Events');
+            
+            if (!recentEventsSection) {
+                return '';
+            }
+            
+            // Parse the events table
+            const lines = recentEventsSection.content.trim().split('\n');
+            if (lines.length === 0) {
+                return '';
+            }
+            
+            // Skip the header line and parse data rows
+            const events = [];
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                
+                // Parse the columns - they are space-separated with specific positions
+                // Format: LAST_SEEN   TYPE     REASON                 OBJECT                                                                    MESSAGE
+                const match = line.match(/^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(.+)$/);
+                if (match) {
+                    events.push({
+                        lastSeen: match[1],
+                        type: match[2],
+                        reason: match[3],
+                        object: match[4],
+                        message: match[5].trim()
+                    });
+                }
+            }
+            
+            if (events.length === 0) {
+                return '';
+            }
+            
+            let html = `
+                <div class="config-section">
+                    <h3>📅 Recent Events</h3>
+                    <table class="config-table">
+                        <thead>
+                            <tr>
+                                <th>Last Seen</th>
+                                <th>Type</th>
+                                <th>Reason</th>
+                                <th>Object</th>
+                                <th>Message</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+            
+            for (const event of events) {
+                const typeClass = event.type === 'Warning' ? 'warning-row' : '';
+                const typeBadge = event.type === 'Warning' 
+                    ? '<span class="warning-badge">Warning</span>'
+                    : '<span class="status-badge status-ok">Normal</span>';
+                
+                html += `
+                    <tr class="${typeClass}">
+                        <td style="font-size: 11px; white-space: nowrap;">${escapeHtml(event.lastSeen)}</td>
+                        <td>${typeBadge}</td>
+                        <td style="font-size: 12px;"><strong>${escapeHtml(event.reason)}</strong></td>
+                        <td style="font-size: 11px; font-family: monospace;">${escapeHtml(event.object)}</td>
+                        <td style="font-size: 12px;">${escapeHtml(event.message)}</td>
                     </tr>
                 `;
             }
@@ -2286,26 +3480,35 @@
             return html;
         }
 
-        function renderClusterInfo() {
+        function renderHealthAndDiagnostics() {
             let html = '';
             
-            // Always render health summary if we have pod data
+            // Render health summary if we have pod data
             if (Object.keys(state.podHealth).length > 0) {
                 html += renderHealthSummary();
             }
+
+            healthContent.innerHTML = html || '<div class="empty-state"><div class="empty-state-icon">🏥</div><p>No health data available</p></div>';
+        }
+
+        function renderClusterInfo() {
+            let html = '';
             
-            // Then render cluster context sections if available
+            // Render cluster context sections if available (static configuration)
+            // Exclude "Recent Events" as it's shown in Health & Diagnostics tab
             if (state.clusterContext) {
                 const sections = parseClusterSections(state.clusterContext);
-                html += sections.map((section, index) => `
+                const filteredSections = sections.filter(s => s.title !== 'Recent Events');
+                html += filteredSections.map((section, index) => `
                     <div class="context-section">
-                        <div class="context-header" onclick="toggleSection(${index})">
-                            <span>${section.title}</span>
-                            <span class="toggle-icon" id="toggle-${index}">▼</span>
+                        <div class="context-header">
+                            <span onclick="toggleSection(${index})" style="cursor: pointer; flex: 1;">${section.title}</span>
+                            <div class="context-header-controls">
+                                <button class="copy-section-btn" onclick="copySectionContent(${index}, event)" title="Copy to clipboard">📋 Copy</button>
+                                <span class="toggle-icon" id="toggle-${index}" onclick="toggleSection(${index})" style="cursor: pointer;">▼</span>
+                            </div>
                         </div>
-                        <div class="context-content" id="content-${index}">
-                            ${escapeHtml(section.content)}
-                        </div>
+                        <div class="context-content" id="content-${index}">${escapeHtml(section.content)}</div>
                     </div>
                 `).join('');
             }
@@ -2322,6 +3525,8 @@
             for (const line of lines) {
                 if (line.startsWith('===')) {
                     if (currentSection) {
+                        // Trim leading/trailing whitespace from content before saving
+                        currentSection.content = currentSection.content.trim();
                         sections.push(currentSection);
                     }
                     currentSection = {
@@ -2334,6 +3539,8 @@
             }
 
             if (currentSection) {
+                // Trim leading/trailing whitespace from content before saving
+                currentSection.content = currentSection.content.trim();
                 sections.push(currentSection);
             }
 
@@ -2349,6 +3556,169 @@
             toggle.classList.toggle('collapsed');
         };
 
+        // Copy Section Content
+        window.copySectionContent = function(index, event) {
+            event.stopPropagation(); // Prevent toggle when clicking copy button
+            
+            const contentElement = document.getElementById(`content-${index}`);
+            const text = contentElement.textContent;
+            
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = event.target.closest('.copy-section-btn');
+                const originalText = btn.innerHTML;
+                btn.innerHTML = '✓ Copied!';
+                btn.style.background = '#4ade80';
+                
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.style.background = '';
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy:', err);
+                alert('Failed to copy to clipboard');
+            });
+        };
+
+        // Filter by error category (called from Error Categories table)
+        window.filterByCategory = async function(category) {
+            // Show loading indicator
+            const categoryName = category.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+            showLoading(`Loading ${categoryName} logs...`);
+            
+            // Allow UI to update
+            await new Promise(resolve => setTimeout(resolve, 50));
+            
+            // Switch to Logs tab
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            
+            const logsTab = document.querySelector('[data-tab="logs"]');
+            const logsContent = document.querySelector('[data-content="logs"]');
+            logsTab.classList.add('active');
+            logsContent.classList.add('active');
+            
+            // Set category filter
+            state.categoryFilter = category;
+            
+            // Set filter to show all levels (since we're filtering by category which includes the level)
+            state.filterLevel = 'ALL';
+            document.querySelectorAll('[data-level]').forEach(b => b.classList.remove('active'));
+            document.querySelector('[data-level="ALL"]').classList.add('active');
+            
+            // Clear search term
+            searchInput.value = '';
+            state.searchTerm = '';
+            
+            // Invalidate cache and re-render
+            invalidateCache();
+            await renderLogs();
+            
+            // Scroll to top of logs
+            logContent.scrollTop = 0;
+            
+            // Update the toolbar to show active category filter
+            updateCategoryFilterDisplay(category);
+            
+            // Hide loading after rendering is complete
+            hideLoading();
+        };
+
+        // Scroll to a specific section in the config tab
+        window.scrollToSection = function(sectionId) {
+            const section = document.getElementById(sectionId);
+            if (section) {
+                const configContent = document.getElementById('configContent');
+                // Calculate offset from top of scrollable container
+                const sectionTop = section.offsetTop - configContent.offsetTop;
+                configContent.scrollTo({
+                    top: sectionTop - 20, // 20px offset for padding
+                    behavior: 'smooth'
+                });
+                
+                // Add a brief highlight effect
+                section.style.transition = 'background-color 0.5s';
+                section.style.backgroundColor = 'rgba(58, 150, 221, 0.1)';
+                setTimeout(() => {
+                    section.style.backgroundColor = '';
+                }, 1000);
+            }
+        };
+
+        // Update the toolbar to show which category filter is active
+        function updateCategoryFilterDisplay(category) {
+            // Remove any existing filter badge
+            const existingBadge = document.querySelector('.filter-badge');
+            if (existingBadge) {
+                existingBadge.remove();
+            }
+            
+            if (category) {
+                const categoryName = category.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                const toolbar = document.querySelector('.toolbar');
+                const badge = document.createElement('span');
+                badge.className = 'filter-badge';
+                badge.innerHTML = `Category: ${categoryName} <span style="cursor: pointer; margin-left: 5px;" onclick="clearCategoryFilter()">✕</span>`;
+                toolbar.appendChild(badge);
+            }
+        }
+
+        // Clear category filter
+        window.clearCategoryFilter = function() {
+            state.categoryFilter = null;
+            invalidateCache();
+            renderLogs();
+            updateCategoryFilterDisplay(null);
+        };
+
+        // Navigate to specific pod logs (called from Pod Health table)
+        window.navigateToPodLogs = async function(podName, filterLevel) {
+            // Show loading indicator
+            const levelText = filterLevel === 'ALL' ? 'all' : filterLevel.toLowerCase();
+            showLoading(`Loading ${levelText} logs for ${podName}...`);
+            
+            // Allow UI to update
+            await new Promise(resolve => setTimeout(resolve, 50));
+            
+            // Switch to Logs tab
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            
+            const logsTab = document.querySelector('[data-tab="logs"]');
+            const logsContent = document.querySelector('[data-content="logs"]');
+            logsTab.classList.add('active');
+            logsContent.classList.add('active');
+            
+            // Select the specific pod
+            state.currentPod = podName;
+            document.querySelectorAll('.pod-item').forEach(item => item.classList.remove('active'));
+            // We'll update the pod list active state in the next render
+            
+            // Set filter level to ERROR or WARNING
+            state.filterLevel = filterLevel || 'ERROR';
+            document.querySelectorAll('[data-level]').forEach(b => b.classList.remove('active'));
+            const levelBtn = document.querySelector(`[data-level="${state.filterLevel}"]`);
+            if (levelBtn) levelBtn.classList.add('active');
+            
+            // Clear category filter
+            state.categoryFilter = null;
+            updateCategoryFilterDisplay(null);
+            
+            // Clear search term
+            searchInput.value = '';
+            state.searchTerm = '';
+            
+            // Invalidate cache and re-render
+            invalidateCache();
+            updatePodList(); // Update pod list to show correct active state
+            await renderLogs();
+            
+            // Scroll to top of logs
+            logContent.scrollTop = 0;
+            
+            // Hide loading after rendering is complete
+            hideLoading();
+        };
+
         // Setup Tabs
         function setupTabs() {
             document.querySelectorAll('.tab').forEach(tab => {
@@ -2360,6 +3730,15 @@
                     
                     tab.classList.add('active');
                     document.querySelector(`[data-content="${tabName}"]`).classList.add('active');
+                    
+                    // Lazy parse cluster context details when tabs are first viewed
+                    if (tabName === 'health') {
+                        parsePodMetadata();
+                        renderHealthAndDiagnostics();
+                    } else if (tabName === 'config') {
+                        lazyParseStorageClasses();
+                        renderConfiguration();
+                    }
                 });
             });
         }
@@ -2373,6 +3752,12 @@
                     
                     document.querySelectorAll('[data-level]').forEach(b => b.classList.remove('active'));
                     btn.classList.add('active');
+                    
+                    // Clear category filter when changing level manually
+                    if (state.categoryFilter) {
+                        state.categoryFilter = null;
+                        updateCategoryFilterDisplay(null);
+                    }
                     
                     invalidateCache();
                     renderLogs();
@@ -2494,12 +3879,29 @@
         }
 
         // Utility Functions
-        function showLoading() {
+        function showLoading(message = 'Processing log bundle...') {
+            const loadingMessage = document.getElementById('loadingMessage');
+            const progressBar = document.getElementById('progressBar');
+            const progressText = document.getElementById('progressText');
+            
+            loadingMessage.textContent = message;
+            progressBar.style.width = '0%';
+            progressText.textContent = '';
             loading.classList.remove('hidden');
         }
 
         function hideLoading() {
             loading.classList.add('hidden');
+        }
+
+        function updateProgress(percentage, text) {
+            const progressBar = document.getElementById('progressBar');
+            const progressText = document.getElementById('progressText');
+            
+            progressBar.style.width = `${percentage}%`;
+            if (text) {
+                progressText.textContent = text;
+            }
         }
 
         function escapeHtml(text) {
