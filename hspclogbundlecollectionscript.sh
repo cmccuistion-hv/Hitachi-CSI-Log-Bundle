@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Hitachi HSPC CSI Driver Log Bundle Collector v1.5
+# Hitachi HSPC CSI Driver Log Bundle Collector v1.5.1
 # - --kubeconfig is completely optional (uses default or $KUBECONFIG if present)
 # - Full OpenShift auto-detect + smart fallback to ./oc
 # - All manifests with status (deployments, daemonsets, replicasets)
@@ -12,6 +12,9 @@
 # =============================================================================
 
 set -euo pipefail
+
+# Script version
+SCRIPT_VERSION="1.5.1"
 
 # Helper functions
 log() { echo "[$(date +'%H:%M:%S')] $*"; }
@@ -51,9 +54,18 @@ KUBE() {
 }
 
 detect_openshift() {
-    KUBE api-resources --api-group=route.openshift.io >/dev/null 2>&1 && return 0
-    KUBE api-resources --api-group=security.openshift.io >/dev/null 2>&1 && return 0
-    KUBE api-resources --api-group=console.openshift.io >/dev/null 2>&1 && return 0
+    # Check if any of these API groups return actual resources (more than just header line)
+    # kubectl api-resources returns a header line even when no resources exist, so check for >1 line
+    local line_count
+    line_count=$(KUBE api-resources --api-group=route.openshift.io 2>/dev/null | wc -l)
+    [[ $line_count -gt 1 ]] && return 0
+    
+    line_count=$(KUBE api-resources --api-group=security.openshift.io 2>/dev/null | wc -l)
+    [[ $line_count -gt 1 ]] && return 0
+    
+    line_count=$(KUBE api-resources --api-group=console.openshift.io 2>/dev/null | wc -l)
+    [[ $line_count -gt 1 ]] && return 0
+    
     return 1
 }
 
@@ -160,13 +172,17 @@ else
 fi
 
 {
-    echo "=== Cluster Version ==="
+    echo "=== Log Collection Script Version ==="
+    echo "Script Version: $SCRIPT_VERSION"
+    echo "Collection Date: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+    
+    echo -e "\n=== Cluster Version ==="
     KUBE version
 
     echo -e "\n=== Orchestration Platform ==="
     if detect_openshift; then
         echo "Platform: OpenShift"
-        KUBE version -o json 2>/dev/null | grep -E '"gitVersion"|"platform"' || echo "OpenShift (version details unavailable)"
+        KUBE version -o json 2>/dev/null | grep -E '"gitVersion"|"platform"' || true
     else
         echo "Platform: Kubernetes"
     fi
@@ -189,10 +205,10 @@ fi
     KUBE get rs -n "$NAMESPACE" -o yaml 2>/dev/null || echo "No ReplicaSets found"
 
     echo -e "\n=== HSPC StorageClasses ==="
-    sc_names=$(KUBE get storageclass -o jsonpath='{range .items[?(@.provisioner=="hspc.csi.hitachi.com")]}{.metadata.name}{"\n"}{end}' 2>/dev/null | grep -v '^$')
+    sc_names=$(KUBE get storageclass -o jsonpath='{range .items[?(@.provisioner=="hspc.csi.hitachi.com")]}{.metadata.name}{"\n"}{end}' 2>/dev/null | grep -v '^$' || true)
     if [[ -n "$sc_names" ]]; then
         echo "$sc_names" | while read -r sc; do
-            [[ -n "$sc" ]] && KUBE get storageclass "$sc" -o yaml 2>/dev/null
+            [[ -n "$sc" ]] && KUBE get storageclass "$sc" -o yaml 2>/dev/null || true
         done
     else
         echo "No HSPC StorageClasses found"
@@ -218,7 +234,7 @@ fi
     done
 
     echo -e "\n=== Recent Events ==="
-    KUBE get events -n "$NAMESPACE" --sort-by='.lastTimestamp' | tail -100
+    KUBE get events -n "$NAMESPACE" --sort-by='.lastTimestamp' 2>/dev/null | tail -100 || KUBE get events -n "$NAMESPACE" 2>/dev/null | tail -100 || echo "No events available"
 
 } > "$OUTPUT_DIR/cluster-context.txt"
 
@@ -248,4 +264,4 @@ with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as z:
     fi
 fi
 
-log "HSPC CSI support bundle ready."
+log "Hitachi CSI support bundle ready."

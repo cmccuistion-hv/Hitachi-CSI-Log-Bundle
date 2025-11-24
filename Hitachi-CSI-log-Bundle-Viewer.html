@@ -65,13 +65,6 @@
             font-size: 24px;
         }
 
-        .header-timestamp {
-            color: var(--text-secondary);
-            font-size: 13px;
-            margin-left: 34px;
-            font-weight: normal;
-        }
-
         .header-info {
             color: var(--text-secondary);
             font-size: 12px;
@@ -965,7 +958,6 @@
                     Hitachi CSI Log Bundle Viewer
                     <span style="font-size: 12px; font-weight: normal; color: var(--text-secondary); margin-left: 12px;">v<span id="currentVersion"></span></span>
                 </h1>
-                <div class="header-timestamp" id="bundleTimestamp"></div>
             </div>
             <div class="header-info">
                 <span id="bundleInfo">No bundle loaded</span>
@@ -1013,6 +1005,14 @@
                 <div class="stats-panel">
                     <h3>Summary</h3>
                     <div class="stat-item">
+                        <span class="stat-label">Bundle Captured</span>
+                        <span class="stat-value info" id="bundleTimestamp" style="font-size: 11px;">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Bundle Collection Version</span>
+                        <span class="stat-value info" id="collectionScriptVersion">-</span>
+                    </div>
+                    <div class="stat-item">
                         <span class="stat-label">Total Errors</span>
                         <span class="stat-value error" id="totalErrors">0</span>
                     </div>
@@ -1029,7 +1029,7 @@
                         <span class="stat-value info" id="platform">-</span>
                     </div>
                     <div class="stat-item">
-                        <span class="stat-label">Platform Version</span>
+                        <span class="stat-label" id="platformVersionLabel">Platform Version</span>
                         <span class="stat-value info" id="platformVersion">-</span>
                     </div>
                     <div class="stat-item">
@@ -1052,6 +1052,7 @@
                         <span class="stat-label">Nodes</span>
                         <span class="stat-value" id="nodeCount">0</span>
                     </div>
+
                 </div>
 
                 <div class="pod-list">
@@ -1160,7 +1161,7 @@
           ============================================ */
 
         // Version Configuration
-        const VERSION = '1.5';
+        const VERSION = '1.5.1';
         const GITHUB_REPO = 'cmccuistion-hv/Hitachi-CSI-Log-Bundle';
         const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`;
         const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
@@ -1186,7 +1187,8 @@
                 hspccVersion: '-',
                 gitCommit: '-',
                 goVersion: '-',
-                nodeCount: 0
+                nodeCount: 0,
+                collectionScriptVersion: '-'
             },
             podStats: {},
             // Performance optimizations
@@ -1453,21 +1455,20 @@
                 // Create a date object
                 const date = new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}`);
                 
-                // Format as human-readable string
+                // Format as compact human-readable string for sidebar
                 const options = { 
                     year: 'numeric', 
-                    month: 'long', 
+                    month: 'short', 
                     day: 'numeric', 
                     hour: '2-digit', 
                     minute: '2-digit',
-                    second: '2-digit',
                     hour12: true
                 };
                 
-                return `Log Bundle Captured: ${date.toLocaleString('en-US', options)}`;
+                return date.toLocaleString('en-US', options);
             }
             
-            return ''; // Return empty if no timestamp found
+            return '-'; // Return dash if no timestamp found
         }
 
         // Process File Contents
@@ -1484,7 +1485,8 @@
                 hspccVersion: '-',
                 gitCommit: '-',
                 goVersion: '-',
-                nodeCount: 0
+                nodeCount: 0,
+                collectionScriptVersion: '-'
             };
             state.podStats = {};
             state.config = {
@@ -2032,12 +2034,23 @@
             let nodeCount = 0;
             let platformSet = false;
             let versionSet = false;
+            let k8sVersion = null; // Track k8s version separately
+            let scriptVersionSet = false;
             
             // Split once and iterate through lines
             const lines = content.split('\n');
             
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];
+                
+                // Extract collection script version
+                if (!scriptVersionSet && line.indexOf('Script Version:') !== -1) {
+                    const match = line.match(/Script Version:\s*(.+)$/);
+                    if (match) {
+                        state.stats.collectionScriptVersion = match[1].trim();
+                        scriptVersionSet = true;
+                    }
+                }
                 
                 // Extract platform (only need to check once)
                 if (!platformSet) {
@@ -2050,18 +2063,52 @@
                     }
                 }
                 
-                // Extract platform version
+                // Extract Kubernetes Server Version (always capture this)
+                if (!k8sVersion && line.indexOf('Server Version:') !== -1) {
+                    const match = line.match(/Server Version:\s*(\S+)/);
+                    if (match) {
+                        k8sVersion = match[1];
+                    }
+                }
+                
+                // Extract platform-specific version
                 if (!versionSet) {
+                    // OpenShift version from openshiftVersion field (if present)
                     if (line.indexOf('"openshiftVersion"') !== -1) {
                         const match = line.match(/"openshiftVersion"\s*:\s*"([^"]+)"/);
                         if (match) {
                             state.stats.platformVersion = match[1];
                             versionSet = true;
                         }
-                    } else if (line.indexOf('Server Version:') !== -1) {
-                        const match = line.match(/Server Version:\s*(\S+)/);
+                    }
+                    // OpenShift version from container runtime (rhaos)
+                    else if (state.stats.platform === 'OpenShift' && line.indexOf('rhaos') !== -1) {
+                        const match = line.match(/rhaos(\d+\.\d+)/);
                         if (match) {
                             state.stats.platformVersion = match[1];
+                            versionSet = true;
+                        }
+                    }
+                    // k3s detection
+                    else if (line.indexOf('k3s') !== -1) {
+                        state.stats.platform = 'k3s';
+                        platformSet = true;
+                        const match = line.match(/k3s[^\s]*\+k3s(\d+)/);
+                        if (match && k8sVersion) {
+                            state.stats.platformVersion = k8sVersion;
+                            versionSet = true;
+                        }
+                    }
+                    // Rancher detection (RKE/RKE2)
+                    else if (line.indexOf('rancher') !== -1 || line.indexOf('rke2') !== -1) {
+                        if (line.indexOf('rke2') !== -1) {
+                            state.stats.platform = 'RKE2';
+                        } else {
+                            state.stats.platform = 'Rancher';
+                        }
+                        platformSet = true;
+                        if (k8sVersion) {
+                            state.stats.platformVersion = k8sVersion;
                             versionSet = true;
                         }
                     }
@@ -2072,10 +2119,15 @@
                     nodeCount++;
                 }
                 
-                // Early exit if we found everything (optimization)
-                if (platformSet && versionSet && nodeCount > 0 && i > 100) {
-                    // Continue counting nodes but can stop checking platform/version
+                // Early exit optimization - but keep scanning for rhaos if OpenShift and no version yet
+                if (platformSet && versionSet && nodeCount > 0 && i > 200) {
+                    break;
                 }
+            }
+            
+            // Fallback: Use k8s version if no platform-specific version found
+            if (!versionSet && k8sVersion) {
+                state.stats.platformVersion = k8sVersion;
             }
             
             state.stats.nodeCount = nodeCount;
@@ -2257,7 +2309,7 @@
             renderHealthAndDiagnostics();
             renderClusterInfo();
             renderConfiguration();
-            document.getElementById('bundleInfo').textContent = `${Object.keys(state.logs).length} pods loaded`;
+            document.getElementById('bundleInfo').textContent = `${Object.keys(state.logs).length} containers loaded`;
             document.getElementById('bundleTimestamp').textContent = state.bundleTimestamp;
         }
 
@@ -2268,11 +2320,34 @@
             document.getElementById('totalLogs').textContent = state.stats.totalLogs.toLocaleString();
             document.getElementById('platform').textContent = state.stats.platform;
             document.getElementById('platformVersion').textContent = state.stats.platformVersion;
+            
+            // Update platform version label based on platform type
+            const platformVersionLabel = document.getElementById('platformVersionLabel');
+            switch (state.stats.platform) {
+                case 'OpenShift':
+                    platformVersionLabel.textContent = 'OpenShift Version';
+                    break;
+                case 'k3s':
+                    platformVersionLabel.textContent = 'k3s Version';
+                    break;
+                case 'RKE2':
+                    platformVersionLabel.textContent = 'RKE2 Version';
+                    break;
+                case 'Rancher':
+                    platformVersionLabel.textContent = 'Rancher Version';
+                    break;
+                case 'Kubernetes':
+                default:
+                    platformVersionLabel.textContent = 'Kubernetes Version';
+                    break;
+            }
+            
             document.getElementById('hspcVersion').textContent = state.stats.hspcVersion;
             document.getElementById('hspccVersion').textContent = state.stats.hspccVersion;
             document.getElementById('gitCommit').textContent = state.stats.gitCommit;
             document.getElementById('goVersion').textContent = state.stats.goVersion;
             document.getElementById('nodeCount').textContent = state.stats.nodeCount;
+            document.getElementById('collectionScriptVersion').textContent = state.stats.collectionScriptVersion;
         }
 
         // Update Pod List
@@ -3046,9 +3121,11 @@
         // Render Cluster Info
         // Render Health Summary
         function renderHealthSummary() {
-            const totalPods = Object.keys(state.podHealth).length;
-            const podsWithErrors = Object.values(state.podHealth).filter(p => p.errors > 0).length;
-            const podsWithWarnings = Object.values(state.podHealth).filter(p => p.warnings > 0).length;
+            // Count actual pods (not individual containers)
+            const podGroups = groupContainersByPod();
+            const totalPods = Object.keys(podGroups).length;
+            const podsWithErrors = Object.values(podGroups).filter(p => p.totalErrors > 0).length;
+            const podsWithWarnings = Object.values(podGroups).filter(p => p.totalWarnings > 0).length;
             
             const totalNodes = Object.keys(state.nodeHealth).length;
             const nodesWithErrors = Object.values(state.nodeHealth).filter(n => n.errors > 0).length;
@@ -3136,7 +3213,7 @@
                                 <th>Category</th>
                                 <th>Description</th>
                                 <th>Count</th>
-                                <th>Affected Pods</th>
+                                <th>Affected Containers</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -3403,7 +3480,7 @@
                         <thead>
                             <tr>
                                 <th>Node</th>
-                                <th>Affected Pods</th>
+                                <th>Affected Containers</th>
                                 <th>Status</th>
                             </tr>
                         </thead>

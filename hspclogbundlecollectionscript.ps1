@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Hitachi HSPC CSI Driver Log Bundle Collector v1.5 - PowerShell Edition
+    Hitachi HSPC CSI Driver Log Bundle Collector v1.5.1 - PowerShell Edition
     -Kubeconfig optional · auto-detect OpenShift · full manifests
     -Collects logs from ALL containers in each pod.
     -Oc optional 
@@ -29,6 +29,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# Script version
+$SCRIPT_VERSION = "1.5.1"
 
 # Prefer local binaries if present, otherwise system PATH
 $Kubectl = if (Test-Path "./kubectl.exe") { "./kubectl.exe" } elseif (Test-Path "./kubectl") { "./kubectl" } elseif (Get-Command "kubectl" -ErrorAction SilentlyContinue) { "kubectl" } else { "" }
@@ -76,9 +79,17 @@ function Kube {
 }
 
 function Test-OpenShift {
-    try { Kube api-resources --api-group=route.openshift.io | Out-Null; return $true } catch {}
-    try { Kube api-resources --api-group=security.openshift.io | Out-Null; return $true } catch {}
-    try { Kube api-resources --api-group=console.openshift.io | Out-Null; return $true } catch {}
+    # Check if any of these API groups return actual resources (more than just header line)
+    # kubectl api-resources returns a header line even when no resources exist, so check for >1 line
+    $routeCheck = @(Kube api-resources --api-group=route.openshift.io 2>$null | Where-Object { $_.Trim() })
+    if ($routeCheck.Count -gt 1) { return $true }
+    
+    $securityCheck = @(Kube api-resources --api-group=security.openshift.io 2>$null | Where-Object { $_.Trim() })
+    if ($securityCheck.Count -gt 1) { return $true }
+    
+    $consoleCheck = @(Kube api-resources --api-group=console.openshift.io 2>$null | Where-Object { $_.Trim() })
+    if ($consoleCheck.Count -gt 1) { return $true }
+    
     return $false
 }
 
@@ -157,7 +168,11 @@ foreach ($pod in $pods) {
 # Full context dump - clean output
 $contextFile = "$OutputDir/cluster-context.txt"
 
-"=== Cluster Version ===" | Out-File -Encoding utf8 $contextFile
+"=== Log Collection Script Version ===" | Out-File -Encoding utf8 $contextFile
+"Script Version: $SCRIPT_VERSION" | Out-File -Encoding utf8 -Append $contextFile
+"Collection Date: $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss UTC'))" | Out-File -Encoding utf8 -Append $contextFile
+
+"`n=== Cluster Version ===" | Out-File -Encoding utf8 -Append $contextFile
 Kube version | Out-File -Encoding utf8 -Append $contextFile
 
 "`n=== Orchestration Platform ===" | Out-File -Encoding utf8 -Append $contextFile
@@ -237,7 +252,15 @@ foreach ($pod in $pods) {
 }
 
 "`n=== Recent Events ===" | Out-File -Encoding utf8 -Append $contextFile
-Kube get events -n $Namespace --sort-by='.lastTimestamp' | Select-Object -Last 100 | Out-File -Encoding utf8 -Append $contextFile
+try {
+    Kube get events -n $Namespace --sort-by='.lastTimestamp' 2>$null | Select-Object -Last 100 | Out-File -Encoding utf8 -Append $contextFile
+} catch {
+    try {
+        Kube get events -n $Namespace 2>$null | Select-Object -Last 100 | Out-File -Encoding utf8 -Append $contextFile
+    } catch {
+        "No events available" | Out-File -Encoding utf8 -Append $contextFile
+    }
+}
 
 Log "Collection complete → $OutputDir"
 
@@ -247,4 +270,4 @@ if ($Compress) {
     Log "Zip created (built-in): $zipfile"
 }
 
-Log "HSPC CSI support bundle ready."
+Log "Hitachi CSI support bundle ready."
