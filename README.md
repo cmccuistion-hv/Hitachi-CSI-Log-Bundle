@@ -47,9 +47,11 @@ A comprehensive log collection tool for Hitachi CSI drivers running in Kubernete
 
 3. (Optional) Place `kubectl` or `oc` binary in the same directory, or ensure it's in your PATH
 
-## Usage
+
 
 ### Bash Script Examples
+
+## Usage
 
 **Basic usage** (uses default kubeconfig):
 ```bash
@@ -89,6 +91,18 @@ A comprehensive log collection tool for Hitachi CSI drivers running in Kubernete
 **Combined options**:
 ```bash
 ./hspclogbundlecollectionscript.sh --kubeconfig ./kubeconfig --oc -n hspc-system -j 8
+```
+##### Note: If error such as below is seen
+```
+[root@ocp-jumpvm ~]#./hspclogbundlecollectionscript.sh
+/usr/bin/env: ‘bash\r’: No such file or directory
+/usr/bin/env: use -[v]S to pass options in shebang lines
+
+```
+Fix with 
+```
+sed -i 's/\r$//' hspclogbundlecollectionscript.sh
+
 ```
 
 ### PowerShell Script Examples
