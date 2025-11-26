@@ -180,6 +180,10 @@ The script creates a directory (and optionally a zip file) containing:
 - `<pod-name>_<container-name>.log` - Logs from each container in each pod
 - Logs are limited to 200MB per container to prevent excessive collection times
 
+## Log Viewer
+
+This repository also includes an HTML-based log viewer (`Hitachi-CSI-log-Bundle-Viewer.html`) for easy analysis of collected logs. Simply open the HTML file in a browser and load your log bundle directory.
+
 ### Cluster Context File (`cluster-context.txt`)
 Contains comprehensive cluster and application information:
 
@@ -234,10 +238,6 @@ Contains comprehensive cluster and application information:
 - Ensure your kubeconfig has appropriate RBAC permissions
 - You need at least read access to pods, logs, events, and CRDs in the target namespace
 - Try running with cluster-admin privileges if available
-
-## Log Viewer
-
-This repository also includes an HTML-based log viewer (`Hitachi-CSI-log-Bundle-Viewer.html`) for easy analysis of collected logs. Simply open the HTML file in a browser and load your log bundle directory.
 
 ## Support
 
