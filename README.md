@@ -249,22 +249,6 @@ For issues, questions, or contributions:
 
 This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
 
-## Version History
-
-### v1.2.1 (Current)
-- Multi-container support: Collects logs from all containers in each pod
-- Enhanced error handling and reporting
-- Improved output organization with container names in filenames
-- Better cross-platform compatibility
-
-### v1.1
-- Full OpenShift auto-detection with smart fallback
-- Comprehensive manifest collection (deployments, daemonsets, replicasets)
-- Pod ownership chain tracking
-- Enhanced cluster context with node OS and runtime information
-- Python zip fallback for systems without zip utility
-- Parallel collection support (bash version)
-
 ## Contributing
 
 Contributions are welcome! Please feel free to submit pull requests or open issues for bugs and feature requests.
