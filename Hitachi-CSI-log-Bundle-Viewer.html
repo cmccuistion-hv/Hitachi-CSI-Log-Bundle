@@ -313,6 +313,15 @@
             color: rgba(255, 255, 255, 0.8);
         }
 
+        .container-checkbox {
+            cursor: pointer;
+            accent-color: var(--accent-blue);
+        }
+
+        .pod-item:hover .container-checkbox {
+            opacity: 1;
+        }
+
         /* Viewer Panel */
         .viewer-panel {
             flex: 1;
@@ -451,6 +460,7 @@
         .log-content {
             flex: 1;
             overflow-y: auto;
+            overflow-x: hidden; /* Default: no horizontal scroll (content wraps when word wrap is ON) */
             padding: 20px;
             font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
             font-size: 12px;
@@ -462,12 +472,47 @@
             padding: 2px 0;
             white-space: pre-wrap;
             word-break: break-all;
+            overflow-x: hidden !important; /* Force no per-line scrollbars when wrapping */
+            overflow-wrap: break-word; /* Additional wrapping support */
         }
 
-        /* Virtual scroll mode: prevent wrapping for consistent heights */
-        .virtual-scroll-mode .log-line {
-            white-space: nowrap;
+        /* No-wrap mode: prevent wrapping - container-level horizontal scroll */
+        .log-content.no-wrap-mode {
+            overflow-x: auto !important; /* Container scrolls horizontally */
+            overflow-y: auto;
+        }
+
+        /* No-wrap mode: prevent wrapping - only when explicitly enabled */
+        .no-wrap-mode .log-line {
+            white-space: nowrap !important;
+            overflow-x: visible !important; /* Allow content to overflow, no per-line scrollbar */
+            display: block;
+        }
+
+
+        /* Virtual scroll mode: container-level horizontal scroll when needed */
+        .virtual-scroll-mode {
             overflow-x: auto;
+        }
+
+        /* Virtual scroll mode with word wrap ON: allow wrapping */
+        .virtual-scroll-mode:not(.no-wrap-mode) .log-line {
+            white-space: pre-wrap;
+            word-break: break-all;
+            min-height: 22px;
+            overflow-x: hidden !important; /* Force no per-line scrollbars */
+            overflow-wrap: break-word;
+        }
+
+        /* Virtual scroll mode with word wrap OFF: no wrapping, container scrolls */
+        .virtual-scroll-mode.no-wrap-mode {
+            overflow-x: auto !important;
+        }
+
+        .virtual-scroll-mode.no-wrap-mode .log-line {
+            white-space: nowrap !important;
+            overflow-x: visible !important;
+            min-height: 22px;
         }
 
         .log-line.error {
@@ -1005,6 +1050,10 @@
                 <div class="stats-panel">
                     <h3>Summary</h3>
                     <div class="stat-item">
+                        <span class="stat-label">Bundle</span>
+                        <span class="stat-value info" id="bundleFilename" style="font-size: 11px; word-break: break-all;">-</span>
+                    </div>
+                    <div class="stat-item">
                         <span class="stat-label">Bundle Captured</span>
                         <span class="stat-value info" id="bundleTimestamp" style="font-size: 11px;">-</span>
                     </div>
@@ -1056,7 +1105,7 @@
                 </div>
 
                 <div class="pod-list">
-                    <h3>Pod Logs</h3>
+                    <h3>Container Logs</h3>
                     <div id="podList"></div>
                 </div>
             </div>
@@ -1086,9 +1135,20 @@
                             <span class="search-clear" id="searchClear">✕</span>
                         </div>
 
+                        <div class="filter-group" id="timeFilterGroup" style="display: none;">
+                            <span class="filter-label">Time:</span>
+                            <input type="date" id="timeFilterStartDate" class="btn" style="padding: 6px 8px; font-size: 11px;">
+                            <input type="time" id="timeFilterStartTime" class="btn" style="padding: 6px 8px; font-size: 11px;" title="Start time (optional)">
+                            <span style="color: var(--text-secondary); margin: 0 5px;">to</span>
+                            <input type="date" id="timeFilterEndDate" class="btn" style="padding: 6px 8px; font-size: 11px;">
+                            <input type="time" id="timeFilterEndTime" class="btn" style="padding: 6px 8px; font-size: 11px;" title="End time (optional)">
+                            <button class="btn" id="timeFilterClear" title="Clear time filter" style="padding: 6px 10px;">✕</button>
+                        </div>
+
                         <div class="nav-buttons">
                             <button class="btn btn-icon" id="prevError" title="Previous Error">↑</button>
                             <button class="btn btn-icon" id="nextError" title="Next Error">↓</button>
+                            <button class="btn" id="wordWrapBtn" title="Toggle word wrap">🔤 Wrap</button>
                         </div>
 
                         <button class="btn" id="copyBtn">📋 Copy</button>
@@ -1161,7 +1221,7 @@
           ============================================ */
 
         // Version Configuration
-        const VERSION = '1.5.1';
+        const VERSION = '1.6.0';
         const GITHUB_REPO = 'cmccuistion-hv/Hitachi-CSI-Log-Bundle';
         const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`;
         const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
@@ -1175,6 +1235,16 @@
             filterLevel: 'ALL',
             searchTerm: '',
             categoryFilter: null,  // Filter by error category
+            wordWrap: true,  // Toggle word wrap mode
+            disabledContainers: new Set(),  // Containers disabled when viewing "all" (empty Set = all enabled)
+            timeFilter: {
+                enabled: false,
+                startDate: null,
+                endDate: null,
+                startTime: null,
+                endTime: null
+            },
+            inferredYear: null,  // Year inferred from format 2 timestamps for format 1
             bundleName: '',
             bundleTimestamp: '',
             stats: {
@@ -1328,8 +1398,10 @@
             setupTabs();
             setupFilters();
             setupSearch();
+            setupTimeFilter();
             setupNavigation();
             setupExport();
+            setupWordWrap();
             setupVirtualScroll();
             initializeVersion();
         }
@@ -1475,6 +1547,15 @@
         async function processFileContents(files) {
             state.logs = {};
             state.clusterContext = '';
+            state.inferredYear = null;  // Reset year inference for new bundle
+            state.disabledContainers = new Set();  // Reset disabled containers for new bundle
+            state.timeFilter = {
+                enabled: false,
+                startDate: null,
+                endDate: null,
+                startTime: null,
+                endTime: null
+            };
             state.stats = {
                 totalErrors: 0,
                 totalWarnings: 0,
@@ -1557,6 +1638,60 @@
             hideLoading();
         }
 
+        // Parse timestamp from log line
+        function parseTimestamp(line) {
+            // Format 2: 2025/11/25 22:07:07.978 (YYYY/MM/DD HH:MM:SS.milliseconds)
+            const format2Regex = /^(\d{4})\/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?/;
+            const format2Match = line.match(format2Regex);
+            if (format2Match) {
+                const year = parseInt(format2Match[1], 10);
+                const month = parseInt(format2Match[2], 10);
+                const day = parseInt(format2Match[3], 10);
+                const hour = parseInt(format2Match[4], 10);
+                const minute = parseInt(format2Match[5], 10);
+                const second = parseInt(format2Match[6], 10);
+                const milliseconds = format2Match[7] ? parseInt(format2Match[7].padEnd(3, '0').substring(0, 3), 10) : 0;
+                
+                // Extract full timestamp string from the original match
+                const fullMatch = line.match(/^(\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)/);
+                const timestampStr = fullMatch ? fullMatch[1] : '';
+                const date = new Date(year, month - 1, day, hour, minute, second, milliseconds);
+                
+                if (!isNaN(date.getTime())) {
+                    // Store year for format 1 inference
+                    if (!state.inferredYear) {
+                        state.inferredYear = year;
+                    }
+                    return { timestamp: timestampStr, timestampDate: date };
+                }
+            }
+
+            // Format 1: I1126 21:21:15.079500 ([letter]MMDD HH:MM:SS.microseconds)
+            const format1Regex = /^[A-Z](\d{2})(\d{2})\s+(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?/;
+            const format1Match = line.match(format1Regex);
+            if (format1Match) {
+                const month = parseInt(format1Match[1], 10);
+                const day = parseInt(format1Match[2], 10);
+                const hour = parseInt(format1Match[3], 10);
+                const minute = parseInt(format1Match[4], 10);
+                const second = parseInt(format1Match[5], 10);
+                
+                // Use inferred year, or current year as fallback
+                const year = state.inferredYear || new Date().getFullYear();
+                
+                // Extract full timestamp string including the letter prefix
+                const fullMatch = line.match(/^([A-Z]\d{4}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)/);
+                const timestampStr = fullMatch ? fullMatch[1] : '';
+                
+                const date = new Date(year, month - 1, day, hour, minute, second);
+                if (!isNaN(date.getTime())) {
+                    return { timestamp: timestampStr, timestampDate: date };
+                }
+            }
+
+            return { timestamp: '', timestampDate: null };
+        }
+
         // Parse Log File (optimized)
         function parseLogFile(content, podName) {
             const lines = content.split('\n');
@@ -1617,13 +1752,39 @@
                 if (!line.trim()) continue;
 
                 const hspcMatch = line.match(hspcRegex);
-                let level, timestamp;
+                let level, timestamp, timestampDate;
                 
                 if (hspcMatch) {
+                    // Format 2 timestamp already extracted by regex
                     timestamp = hspcMatch[1];
                     level = hspcMatch[2];
+                    // Parse the timestamp string directly (it's format 2: YYYY/MM/DD HH:MM:SS.milliseconds)
+                    const format2Regex = /^(\d{4})\/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?/;
+                    const tsMatch = timestamp.match(format2Regex);
+                    if (tsMatch) {
+                        const year = parseInt(tsMatch[1], 10);
+                        const month = parseInt(tsMatch[2], 10);
+                        const day = parseInt(tsMatch[3], 10);
+                        const hour = parseInt(tsMatch[4], 10);
+                        const minute = parseInt(tsMatch[5], 10);
+                        const second = parseInt(tsMatch[6], 10);
+                        const msStr = tsMatch[7] || '0';
+                        const milliseconds = parseInt(msStr.padEnd(3, '0').substring(0, 3), 10);
+                        timestampDate = new Date(year, month - 1, day, hour, minute, second, milliseconds);
+                        if (isNaN(timestampDate.getTime())) {
+                            timestampDate = null;
+                        } else if (!state.inferredYear) {
+                            state.inferredYear = year;
+                        }
+                    } else {
+                        timestampDate = null;
+                    }
                 } else {
-                    timestamp = '';
+                    // Try to parse timestamp from line (handles both formats)
+                    const timestampData = parseTimestamp(line);
+                    timestamp = timestampData.timestamp;
+                    timestampDate = timestampData.timestampDate;
+                    
                     // Quick level detection without string methods
                     if (line.indexOf('ERROR') !== -1 || line.indexOf('Error') !== -1 || line.indexOf('error') !== -1) {
                         level = 'ERROR';
@@ -1639,6 +1800,7 @@
                 
                 parsed.push({
                     timestamp: timestamp,
+                    timestampDate: timestampDate,
                     level: level,
                     message: line,
                     source: podName,
@@ -2310,7 +2472,51 @@
             renderClusterInfo();
             renderConfiguration();
             document.getElementById('bundleInfo').textContent = `${Object.keys(state.logs).length} containers loaded`;
+            document.getElementById('bundleFilename').textContent = state.bundleName || '-';
             document.getElementById('bundleTimestamp').textContent = state.bundleTimestamp;
+            
+            // Update time filter visibility and date limits if time filter is set up
+            const timeFilterGroup = document.getElementById('timeFilterGroup');
+            if (timeFilterGroup) {
+                const hasLogs = Object.keys(state.logs).length > 0;
+                timeFilterGroup.style.display = hasLogs ? 'flex' : 'none';
+                
+                if (hasLogs && state.allLogs.length > 0) {
+                    // Update date limits
+                    const startDateInput = document.getElementById('timeFilterStartDate');
+                    const endDateInput = document.getElementById('timeFilterEndDate');
+                    if (startDateInput && endDateInput) {
+                        const dates = state.allLogs
+                            .map(log => log.timestampDate)
+                            .filter(date => date !== null);
+                        
+                        if (dates.length > 0) {
+                            // Use loop instead of spread operator to avoid stack overflow with large arrays
+                            let minTime = dates[0].getTime();
+                            let maxTime = dates[0].getTime();
+                            for (let i = 1; i < dates.length; i++) {
+                                const time = dates[i].getTime();
+                                if (time < minTime) minTime = time;
+                                if (time > maxTime) maxTime = time;
+                            }
+                            const minDate = new Date(minTime);
+                            const maxDate = new Date(maxTime);
+                            
+                            const formatDate = (date) => {
+                                const year = date.getFullYear();
+                                const month = String(date.getMonth() + 1).padStart(2, '0');
+                                const day = String(date.getDate()).padStart(2, '0');
+                                return `${year}-${month}-${day}`;
+                            };
+                            
+                            startDateInput.min = formatDate(minDate);
+                            startDateInput.max = formatDate(maxDate);
+                            endDateInput.min = formatDate(minDate);
+                            endDateInput.max = formatDate(maxDate);
+                        }
+                    }
+                }
+            }
         }
 
         // Update Stats
@@ -2354,8 +2560,8 @@
         function updatePodList() {
             podList.innerHTML = '';
 
-            // Add "All Pods" option
-            const allItem = createPodItem('all', 'All Pods', state.stats);
+            // Add "All Containers" option
+            const allItem = createPodItem('all', 'All Containers', state.stats);
             podList.appendChild(allItem);
 
             // Add individual pods
@@ -2371,8 +2577,20 @@
             div.className = 'pod-item';
             if (id === state.currentPod) div.classList.add('active');
             
+            const isAllView = state.currentPod === 'all';
+            const isIndividualContainer = id !== 'all';
+            const isEnabled = isAllView && isIndividualContainer 
+                ? !state.disabledContainers.has(id)
+                : true;
+            
+            // Show checkbox for individual containers when viewing "all"
+            const checkboxHtml = (isAllView && isIndividualContainer) 
+                ? `<input type="checkbox" class="container-checkbox" data-container-id="${id}" ${isEnabled ? 'checked' : ''} style="margin-right: 8px; cursor: pointer;">`
+                : '';
+            
             div.innerHTML = `
-                <div class="pod-name">${name}</div>
+                ${checkboxHtml}
+                <div class="pod-name" style="${isAllView && isIndividualContainer ? 'display: inline;' : ''}">${name}</div>
                 <div class="pod-stats">
                     <span>⚠️ ${stats.errors || 0}</span>
                     <span>⚡ ${stats.warnings || 0}</span>
@@ -2380,7 +2598,43 @@
                 </div>
             `;
             
-            div.addEventListener('click', async () => {
+            // Handle checkbox click (stop propagation to prevent selecting the container)
+            if (isAllView && isIndividualContainer) {
+                const checkbox = div.querySelector('.container-checkbox');
+                checkbox.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    const containerId = checkbox.dataset.containerId;
+                    const action = checkbox.checked ? 'enabling' : 'disabling';
+                    
+                    // Show loading indicator
+                    showLoading(`${action.charAt(0).toUpperCase() + action.slice(1)} container logs...`);
+                    
+                    if (checkbox.checked) {
+                        // Checked = enabled, so remove from disabled set
+                        state.disabledContainers.delete(containerId);
+                    } else {
+                        // Unchecked = disabled, so add to disabled set
+                        state.disabledContainers.add(containerId);
+                    }
+                    invalidateCache();
+                    
+                    // Allow UI to update
+                    await new Promise(resolve => setTimeout(resolve, 50));
+                    
+                    // Re-render logs
+                    await renderLogs();
+                    
+                    // Hide loading indicator
+                    hideLoading();
+                });
+            }
+            
+            div.addEventListener('click', async (e) => {
+                // Don't trigger if clicking on checkbox
+                if (e.target.classList.contains('container-checkbox')) {
+                    return;
+                }
+                
                 state.currentPod = id;
                 document.querySelectorAll('.pod-item').forEach(item => item.classList.remove('active'));
                 div.classList.add('active');
@@ -2397,6 +2651,9 @@
                 
                 // Hide loading after rendering is done
                 hideLoading();
+                
+                // Update pod list to show/hide checkboxes based on selection
+                updatePodList();
             });
             
             return div;
@@ -2410,7 +2667,23 @@
             }
 
             // Use pre-concatenated logs for "all" view (performance optimization)
-            let allLogs = state.currentPod === 'all' ? state.allLogs : (state.logs[state.currentPod] || []);
+            let allLogs;
+            if (state.currentPod === 'all') {
+                // If containers are disabled, filter them out
+                if (state.disabledContainers.size > 0) {
+                    allLogs = [];
+                    for (const [containerName, containerLogs] of Object.entries(state.logs)) {
+                        if (!state.disabledContainers.has(containerName)) {
+                            allLogs = allLogs.concat(containerLogs);
+                        }
+                    }
+                } else {
+                    // All containers enabled (default)
+                    allLogs = state.allLogs;
+                }
+            } else {
+                allLogs = state.logs[state.currentPod] || [];
+            }
 
             // Apply filters
             let filtered = allLogs;
@@ -2428,6 +2701,45 @@
 
             if (state.categoryFilter) {
                 filtered = filtered.filter(log => log.category === state.categoryFilter);
+            }
+
+            // Apply time filter if enabled
+            if (state.timeFilter.enabled && (state.timeFilter.startDate || state.timeFilter.endDate)) {
+                filtered = filtered.filter(log => {
+                    if (!log.timestampDate) return false; // Skip logs without timestamps
+                    
+                    const logDate = log.timestampDate;
+                    let startDateTime = null;
+                    let endDateTime = null;
+                    
+                    // Build start date/time
+                    if (state.timeFilter.startDate) {
+                        startDateTime = new Date(state.timeFilter.startDate);
+                        if (state.timeFilter.startTime) {
+                            const [hours, minutes] = state.timeFilter.startTime.split(':');
+                            startDateTime.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0, 0);
+                        } else {
+                            startDateTime.setHours(0, 0, 0, 0); // Start of day if no time specified
+                        }
+                    }
+                    
+                    // Build end date/time
+                    if (state.timeFilter.endDate) {
+                        endDateTime = new Date(state.timeFilter.endDate);
+                        if (state.timeFilter.endTime) {
+                            const [hours, minutes] = state.timeFilter.endTime.split(':');
+                            endDateTime.setHours(parseInt(hours, 10), parseInt(minutes, 10), 59, 999);
+                        } else {
+                            endDateTime.setHours(23, 59, 59, 999); // End of day if no time specified
+                        }
+                    }
+                    
+                    // Check if log timestamp falls within range
+                    if (startDateTime && logDate < startDateTime) return false;
+                    if (endDateTime && logDate > endDateTime) return false;
+                    
+                    return true;
+                });
             }
 
             // Cache the result
@@ -2506,13 +2818,15 @@
 
         // Virtual scrolling for large datasets
         function renderVirtualLogs(filtered) {
-            const totalHeight = filtered.length * state.virtualScroll.itemHeight;
+            // Use estimated height per line (accounting for wrapping)
+            const estimatedLineHeight = 22; // Base height, will expand if wrapped
+            const totalHeight = filtered.length * estimatedLineHeight;
             const scrollTop = state.virtualScroll.scrollTop;
             const visibleCount = state.virtualScroll.visibleCount;
             const bufferCount = state.virtualScroll.bufferCount;
 
             // Calculate visible range
-            const startIndex = Math.max(0, Math.floor(scrollTop / state.virtualScroll.itemHeight) - bufferCount);
+            const startIndex = Math.max(0, Math.floor(scrollTop / estimatedLineHeight) - bufferCount);
             const endIndex = Math.min(filtered.length, startIndex + visibleCount + (bufferCount * 2));
 
             // Only re-render if range changed significantly
@@ -2527,15 +2841,17 @@
             const container = document.createElement('div');
             container.style.height = `${totalHeight}px`;
             container.style.position = 'relative';
+            container.style.width = '100%';
+            container.style.minWidth = '100%';
 
             // Create visible items
             const fragment = document.createDocumentFragment();
             for (let i = startIndex; i < endIndex; i++) {
                 const log = filtered[i];
                 const div = createLogElement(log);
-                div.style.position = 'absolute';
-                div.style.top = `${i * state.virtualScroll.itemHeight}px`;
+                div.style.position = 'relative'; // Changed from absolute to allow natural flow
                 div.style.width = '100%';
+                div.style.minWidth = '100%';
                 fragment.appendChild(div);
             }
 
@@ -3961,6 +4277,95 @@
             });
         }
 
+        // Setup Time Filter
+        function setupTimeFilter() {
+            const startDateInput = document.getElementById('timeFilterStartDate');
+            const startTimeInput = document.getElementById('timeFilterStartTime');
+            const endDateInput = document.getElementById('timeFilterEndDate');
+            const endTimeInput = document.getElementById('timeFilterEndTime');
+            const clearBtn = document.getElementById('timeFilterClear');
+            
+            // Update time filter state and re-render
+            async function applyTimeFilter() {
+                const startDate = startDateInput.value || null;
+                const endDate = endDateInput.value || null;
+                const startTime = startTimeInput.value || null;
+                const endTime = endTimeInput.value || null;
+                
+                state.timeFilter.enabled = !!(startDate || endDate);
+                state.timeFilter.startDate = startDate;
+                state.timeFilter.endDate = endDate;
+                state.timeFilter.startTime = startTime;
+                state.timeFilter.endTime = endTime;
+                
+                invalidateCache();
+                await renderLogs();
+            }
+            
+            // Clear time filter
+            async function clearTimeFilter() {
+                startDateInput.value = '';
+                startTimeInput.value = '';
+                endDateInput.value = '';
+                endTimeInput.value = '';
+                
+                state.timeFilter.enabled = false;
+                state.timeFilter.startDate = null;
+                state.timeFilter.endDate = null;
+                state.timeFilter.startTime = null;
+                state.timeFilter.endTime = null;
+                
+                invalidateCache();
+                await renderLogs();
+            }
+            
+            // Event listeners
+            startDateInput.addEventListener('change', applyTimeFilter);
+            startTimeInput.addEventListener('change', applyTimeFilter);
+            endDateInput.addEventListener('change', applyTimeFilter);
+            endTimeInput.addEventListener('change', applyTimeFilter);
+            clearBtn.addEventListener('click', clearTimeFilter);
+        }
+
+        // Setup Word Wrap Toggle
+        function setupWordWrap() {
+            const wordWrapBtn = document.getElementById('wordWrapBtn');
+            const logContent = document.getElementById('logContent');
+            
+            // Set initial state - ensure no-wrap-mode is removed if wordWrap is true
+            if (state.wordWrap) {
+                logContent.classList.remove('no-wrap-mode');
+            } else {
+                logContent.classList.add('no-wrap-mode');
+            }
+            updateWordWrapButton();
+            
+            wordWrapBtn.addEventListener('click', async () => {
+                state.wordWrap = !state.wordWrap;
+                updateWordWrapButton();
+                
+                if (state.wordWrap) {
+                    logContent.classList.remove('no-wrap-mode');
+                } else {
+                    logContent.classList.add('no-wrap-mode');
+                }
+                
+                // Re-render logs to apply the new wrapping state
+                invalidateCache();
+                await renderLogs();
+            });
+        }
+        
+        function updateWordWrapButton() {
+            const wordWrapBtn = document.getElementById('wordWrapBtn');
+            if (state.wordWrap) {
+                wordWrapBtn.textContent = '🔤 Wrap';
+                wordWrapBtn.title = 'Disable word wrap';
+            } else {
+                wordWrapBtn.textContent = '📄 No Wrap';
+                wordWrapBtn.title = 'Enable word wrap';
+            }
+        }
         // Utility Functions
         function showLoading(message = 'Processing log bundle...') {
             const loadingMessage = document.getElementById('loadingMessage');
