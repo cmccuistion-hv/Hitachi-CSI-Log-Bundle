@@ -375,6 +375,53 @@
             border-color: var(--accent-blue);
             color: white;
         }
+        
+        .cluster-selector {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 10px 20px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        
+        .cluster-selector-content {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .cluster-selector-label {
+            color: var(--text-secondary);
+            font-size: 13px;
+            font-weight: 500;
+        }
+        
+        .cluster-selector .cluster-btn {
+            padding: 6px 16px;
+            font-size: 12px;
+            font-weight: 500;
+            border: 1px solid var(--border-color);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            cursor: pointer;
+            transition: all 0.2s;
+            border-radius: 3px;
+        }
+        
+        .cluster-selector .cluster-btn:hover {
+            background: var(--bg-hover);
+            border-color: var(--accent-blue);
+        }
+        
+        .cluster-selector .cluster-btn.active {
+            background: var(--accent-blue);
+            color: white;
+            border-color: var(--accent-blue);
+        }
 
         .btn.error {
             border-color: var(--error-red);
@@ -1043,6 +1090,15 @@
             <div class="progress-text" id="progressText"></div>
         </div>
 
+        <!-- Cluster Selector (only shown for multi-cluster bundles) -->
+        <div id="clusterSelector" class="cluster-selector" style="display: none;">
+            <div class="cluster-selector-content">
+                <span class="cluster-selector-label">Cluster View:</span>
+                <button class="btn cluster-btn" id="clusterPrimary" data-cluster="primary-cluster">Primary</button>
+                <button class="btn cluster-btn" id="clusterSecondary" data-cluster="secondary-cluster">Secondary</button>
+            </div>
+        </div>
+
         <!-- Main Content -->
         <div class="main-content">
             <!-- Sidebar -->
@@ -1230,7 +1286,9 @@
         const state = {
             logs: {},
             allLogs: [],  // Pre-concatenated logs for "all pods" view (performance optimization)
-            clusterContext: '',
+            clusterContext: {},
+            clusters: [],
+            currentCluster: null,  // null = all clusters, or specific cluster name
             currentPod: 'all',
             filterLevel: 'ALL',
             searchTerm: '',
@@ -1279,12 +1337,14 @@
                 volumes: {},         // volume -> attachments
                 arrays: {},          // array serial -> array info
                 events: [],          // timeline of config changes
-                storageClasses: []   // Array of parsed storage class objects
+                storageClasses: [],  // Array of parsed storage class objects
+                customResources: {}  // cluster-name -> { localVolumes: [], remoteVolumes: [], replications: [], drPolicies: [] }
             },
             // Lazy parsing flags (performance optimization)
             lazyParsed: {
                 storageClasses: false,
-                podMetadata: false
+                podMetadata: false,
+                customResources: false
             },
             // Health tracking data
             podHealth: {},           // pod-name -> { errors, warnings, container, node }
@@ -1470,18 +1530,71 @@
                 const zip = await JSZip.loadAsync(file);
                 const files = [];
                 
-                for (const [filename, zipEntry] of Object.entries(zip.files)) {
-                    const name = filename.split('/').pop();
-                    if (!zipEntry.dir && name !== 'errors.log' && (filename.endsWith('.log') || filename.includes('cluster-context'))) {
-                        const content = await zipEntry.async('string');
-                        files.push({ name, content });
-                    }
+                if (!zip) {
+                    throw new Error('Failed to load ZIP file');
                 }
                 
+                if (!zip.files) {
+                    throw new Error('ZIP file has no files property');
+                }
+                
+                if (typeof zip.files !== 'object') {
+                    throw new Error('ZIP files property is not an object: ' + typeof zip.files);
+                }
+                
+                console.log('ZIP files type:', typeof zip.files, 'Is array:', Array.isArray(zip.files));
+                
+                try {
+                    // JSZip.files is an object-like structure, but we need to iterate it properly
+                    // Use for...in loop or Object.keys() to be safe
+                    const filenames = Object.keys(zip.files);
+                    console.log('ZIP files keys count:', filenames.length);
+                    
+                    for (const filename of filenames) {
+                        const zipEntry = zip.files[filename];
+                        if (!zipEntry) {
+                            console.warn('Null zipEntry for filename:', filename);
+                            continue;
+                        }
+                        if (zipEntry.dir) continue;
+                        if (filename.includes('errors.log')) continue;
+                        
+                        // Check if it's a log file or cluster-context
+                        const isLogFile = filename.endsWith('.log');
+                        const isClusterContext = filename.includes('cluster-context');
+                        
+                        if (isLogFile || isClusterContext) {
+                            try {
+                                const content = await zipEntry.async('string');
+                                
+                                // Extract cluster name from path (primary-cluster/ or secondary-cluster/)
+                                let cluster = null;
+                                let name = filename.split('/').pop();
+                                
+                                if (filename.includes('primary-cluster/')) {
+                                    cluster = 'primary-cluster';
+                                } else if (filename.includes('secondary-cluster/')) {
+                                    cluster = 'secondary-cluster';
+                                }
+                                
+                                files.push({ name, content, cluster, path: filename });
+                            } catch (e) {
+                                console.error('Error reading file content for', filename, ':', e);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error iterating ZIP files:', e);
+                    console.error('Error details:', e.message, e.stack);
+                    throw new Error('Failed to iterate ZIP files: ' + e.message);
+                }
+                
+                console.log('Processed', files.length, 'files from ZIP');
                 await processFileContents(files);
             } catch (error) {
                 console.error('Error processing ZIP:', error);
-                alert('Error processing ZIP file: ' + error.message);
+                console.error('Error stack:', error.stack);
+                alert('Error processing ZIP file: ' + error.message + '\n\nCheck browser console for details.');
                 hideLoading();
             }
         }
@@ -1502,7 +1615,18 @@
             for (const file of files) {
                 if ((file.name.endsWith('.log') && file.name !== 'errors.log') || file.name.includes('cluster-context')) {
                     const content = await file.text();
-                    fileContents.push({ name: file.name, content });
+                    
+                    // Extract cluster name from path
+                    let cluster = null;
+                    if (file.webkitRelativePath) {
+                        if (file.webkitRelativePath.includes('primary-cluster/')) {
+                            cluster = 'primary-cluster';
+                        } else if (file.webkitRelativePath.includes('secondary-cluster/')) {
+                            cluster = 'secondary-cluster';
+                        }
+                    }
+                    
+                    fileContents.push({ name: file.name, content, cluster, path: file.webkitRelativePath || file.name });
                 }
             }
             
@@ -1545,8 +1669,22 @@
 
         // Process File Contents
         async function processFileContents(files) {
-            state.logs = {};
-            state.clusterContext = '';
+            try {
+                console.log('processFileContents called with:', typeof files, Array.isArray(files), files?.length);
+                
+                // Validate files array
+                if (!files) {
+                    throw new Error('Files array is null or undefined');
+                }
+                if (!Array.isArray(files)) {
+                    throw new Error('Files is not an array: ' + typeof files);
+                }
+                
+                console.log('Processing', files.length, 'files');
+                
+                state.logs = {};
+                state.clusterContext = {};
+                state.clusters = [];
             state.inferredYear = null;  // Reset year inference for new bundle
             state.disabledContainers = new Set();  // Reset disabled containers for new bundle
             state.timeFilter = {
@@ -1576,7 +1714,9 @@
                 ports: {},
                 volumes: {},
                 arrays: {},
-                events: []
+                events: [],
+                storageClasses: [],
+                customResources: {}
             };
             // Reset health tracking data
             state.podHealth = {};
@@ -1598,44 +1738,156 @@
             state.volumeOperations = [];
             state.connectivity = {};
 
-            // Parse and format the timestamp from bundle name
-            state.bundleTimestamp = formatBundleTimestamp(state.bundleName);
+                // Parse and format the timestamp from bundle name
+                state.bundleTimestamp = formatBundleTimestamp(state.bundleName);
 
-            const totalFiles = files.length;
-            let processedFiles = 0;
+                const totalFiles = files.length;
+                let processedFiles = 0;
 
-            for (const file of files) {
-                if (file.name.includes('cluster-context')) {
-                    updateProgress((processedFiles / totalFiles) * 100, `Processing cluster context...`);
-                    state.clusterContext = file.content;
-                    parseClusterContext(file.content);
-                    // Parse pod metadata now so node info is available when processing logs
-                    parsePodMetadata();
-                } else if (file.name.endsWith('.log') && file.name !== 'errors.log') {
-                    const podName = file.name.replace('.log', '');
-                    updateProgress((processedFiles / totalFiles) * 100, `Processing ${podName}...`);
-                    state.logs[podName] = parseLogFile(file.content, podName);
+                // First pass: identify clusters and collect cluster contexts
+                const clusterContexts = {};
+                if (files && Array.isArray(files)) {
+                    for (const file of files) {
+                        if (file && file.name && file.name.includes('cluster-context')) {
+                            const cluster = file.cluster || 'default';
+                            clusterContexts[cluster] = file.content;
+                            if (!state.clusters.includes(cluster)) {
+                                state.clusters.push(cluster);
+                            }
+                        }
+                    }
                 }
                 
-                processedFiles++;
+                // Determine if this is a multi-cluster bundle
+                const isMultiCluster = state.clusters.length > 1 || (state.clusters.length === 1 && state.clusters[0] !== 'default');
                 
-                // Allow UI to update every 5 files
-                if (processedFiles % 5 === 0) {
-                    await new Promise(resolve => setTimeout(resolve, 0));
+                // Process cluster contexts
+                if (clusterContexts && typeof clusterContexts === 'object') {
+                    try {
+                        for (const [cluster, content] of Object.entries(clusterContexts)) {
+                            if (cluster && content) {
+                                updateProgress((processedFiles / totalFiles) * 100, `Processing ${cluster} cluster context...`);
+                                state.clusterContext[cluster] = content;
+                                parseClusterContext(content, cluster);
+                                // Parse pod metadata now so node info is available when processing logs
+                                parsePodMetadata(cluster);
+                                processedFiles++;
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Error processing cluster contexts:', e);
+                        throw new Error('Failed to process cluster contexts: ' + e.message);
+                    }
                 }
-            }
+                
+                // Process log files
+                if (files && Array.isArray(files)) {
+                    for (const file of files) {
+                        if (file && file.name && file.name.endsWith('.log') && file.name !== 'errors.log') {
+                            let podName = file.name.replace('.log', '');
+                            const cluster = file.cluster || 'default';
+                            
+                            // Prefix with cluster name if multi-cluster
+                            if (isMultiCluster && cluster !== 'default') {
+                                podName = `${cluster}/${podName}`;
+                            }
+                            
+                            updateProgress((processedFiles / totalFiles) * 100, `Processing ${podName}...`);
+                            state.logs[podName] = parseLogFile(file.content, podName, cluster);
+                        }
+                        
+                        processedFiles++;
+                        
+                        // Allow UI to update every 5 files
+                        if (processedFiles % 5 === 0) {
+                            await new Promise(resolve => setTimeout(resolve, 0));
+                        }
+                    }
+                }
 
-            updateProgress(100, 'Finalizing...');
-            
-            // Pre-concatenate all logs for better "all pods" performance
-            state.allLogs = [];
-            for (const podLogs of Object.values(state.logs)) {
-                state.allLogs = state.allLogs.concat(podLogs);
+                updateProgress(100, 'Finalizing...');
+                
+                // Pre-concatenate all logs for better "all pods" performance
+                state.allLogs = [];
+                if (state.logs && typeof state.logs === 'object') {
+                    try {
+                        for (const podLogs of Object.values(state.logs)) {
+                            if (Array.isArray(podLogs)) {
+                                state.allLogs = state.allLogs.concat(podLogs);
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Error concatenating logs:', e);
+                        throw new Error('Failed to process logs: ' + e.message);
+                    }
+                }
+                
+                // Sort allLogs by timestamp for proper chronological order across clusters
+                if (Array.isArray(state.allLogs)) {
+                    state.allLogs.sort((a, b) => {
+                        if (!a.timestampDate || !b.timestampDate) return 0;
+                        return a.timestampDate - b.timestampDate;
+                    });
+                }
+                
+                // Set initial cluster view - default to first available cluster
+                if (state.clusters.length > 1 || (state.clusters.length === 1 && state.clusters[0] !== 'default')) {
+                    // Default to primary-cluster if available, otherwise first cluster
+                    if (state.clusters.includes('primary-cluster')) {
+                        state.currentCluster = 'primary-cluster';
+                    } else {
+                        state.currentCluster = state.clusters[0];
+                    }
+                    setupClusterSelector();
+                } else {
+                    state.currentCluster = null; // Single cluster or old format
+                }
+                
+                updateUI();
+                dropZone.classList.add('hidden');
+                hideLoading();
+            } catch (error) {
+                console.error('Error in processFileContents:', error);
+                console.error('Error stack:', error.stack);
+                hideLoading();
+                throw error; // Re-throw to be caught by handleZipFile
             }
-            
+        }
+        
+        // Setup cluster selector UI
+        function setupClusterSelector() {
+            const clusterSelector = document.getElementById('clusterSelector');
+            if (state.clusters.length > 1 || (state.clusters.length === 1 && state.clusters[0] !== 'default')) {
+                clusterSelector.style.display = 'block';
+                
+                if (state.clusters.includes('primary-cluster')) {
+                    document.getElementById('clusterPrimary').style.display = 'inline-block';
+                    document.getElementById('clusterPrimary').classList.toggle('active', state.currentCluster === 'primary-cluster');
+                } else {
+                    document.getElementById('clusterPrimary').style.display = 'none';
+                }
+                
+                if (state.clusters.includes('secondary-cluster')) {
+                    document.getElementById('clusterSecondary').style.display = 'inline-block';
+                    document.getElementById('clusterSecondary').classList.toggle('active', state.currentCluster === 'secondary-cluster');
+                } else {
+                    document.getElementById('clusterSecondary').style.display = 'none';
+                }
+                
+                // Add event listeners
+                document.getElementById('clusterPrimary').onclick = () => switchCluster('primary-cluster');
+                document.getElementById('clusterSecondary').onclick = () => switchCluster('secondary-cluster');
+            } else {
+                clusterSelector.style.display = 'none';
+            }
+        }
+        
+        // Switch cluster view
+        function switchCluster(cluster) {
+            state.currentCluster = cluster;
+            invalidateCache(); // Clear filtered cache when switching clusters
+            setupClusterSelector();
             updateUI();
-            dropZone.classList.add('hidden');
-            hideLoading();
         }
 
         // Parse timestamp from log line
@@ -1693,7 +1945,7 @@
         }
 
         // Parse Log File (optimized)
-        function parseLogFile(content, podName) {
+        function parseLogFile(content, podName, cluster = null) {
             const lines = content.split('\n');
             const parsed = [];
             
@@ -2190,8 +2442,35 @@
             }
         }
 
+        // Helper function to get cluster context content (handles both old string format and new object format)
+        function getClusterContext(cluster = null) {
+            if (!state.clusterContext) {
+                return '';
+            }
+            if (typeof state.clusterContext === 'string') {
+                // Old format - single cluster context as string
+                return state.clusterContext;
+            } else if (typeof state.clusterContext === 'object' && state.clusterContext !== null) {
+                // New format - object with cluster keys
+                if (cluster && state.clusterContext[cluster]) {
+                    return state.clusterContext[cluster];
+                }
+                // If no cluster specified, try to get first available cluster context
+                try {
+                    const clusters = Object.keys(state.clusterContext);
+                    if (clusters.length > 0) {
+                        return state.clusterContext[clusters[0]] || '';
+                    }
+                } catch (e) {
+                    console.error('Error getting cluster context:', e);
+                    return '';
+                }
+            }
+            return '';
+        }
+
         // Parse Cluster Context (lightweight - only essential stats, single-pass optimized)
-        function parseClusterContext(content) {
+        function parseClusterContext(content, cluster = null) {
             // Single-pass extraction using indexOf for speed
             let nodeCount = 0;
             let platformSet = false;
@@ -2298,12 +2577,17 @@
         }
         
         // Lazy parse pod metadata (called when Health tab is first viewed)
-        function parsePodMetadata() {
-            if (state.lazyParsed.podMetadata || !state.clusterContext) {
+        function parsePodMetadata(cluster = null) {
+            if (state.lazyParsed.podMetadata) {
                 return;
             }
             
-            const lines = state.clusterContext.split('\n');
+            const clusterContextContent = getClusterContext(cluster);
+            if (!clusterContextContent) {
+                return;
+            }
+            
+            const lines = clusterContextContent.split('\n');
             let currentPod = null;
             let foundStartTime = false;
             let foundNode = false;
@@ -2375,12 +2659,17 @@
         }
         
         // Lazy parse storage classes (called when Configuration tab is first viewed)
-        function lazyParseStorageClasses() {
-            if (state.lazyParsed.storageClasses || !state.clusterContext) {
+        function lazyParseStorageClasses(cluster = null) {
+            if (state.lazyParsed.storageClasses) {
                 return;
             }
             
-            parseStorageClasses(state.clusterContext);
+            const clusterContextContent = getClusterContext(cluster);
+            if (!clusterContextContent) {
+                return;
+            }
+            
+            parseStorageClasses(clusterContextContent);
             state.lazyParsed.storageClasses = true;
         }
         
@@ -2471,7 +2760,15 @@
             renderHealthAndDiagnostics();
             renderClusterInfo();
             renderConfiguration();
-            document.getElementById('bundleInfo').textContent = `${Object.keys(state.logs).length} containers loaded`;
+            // Count containers (filter by cluster if selected)
+            let containerCount = 0;
+            if (state.currentCluster) {
+                const clusterPrefix = state.currentCluster + '/';
+                containerCount = Object.keys(state.logs).filter(name => name.startsWith(clusterPrefix)).length;
+            } else {
+                containerCount = Object.keys(state.logs).length;
+            }
+            document.getElementById('bundleInfo').textContent = `${containerCount} containers loaded`;
             document.getElementById('bundleFilename').textContent = state.bundleName || '-';
             document.getElementById('bundleTimestamp').textContent = state.bundleTimestamp;
             
@@ -2519,13 +2816,54 @@
             }
         }
 
-        // Update Stats
+        // Update Stats (filtered by current cluster)
         function updateStats() {
-            document.getElementById('totalErrors').textContent = state.stats.totalErrors;
-            document.getElementById('totalWarnings').textContent = state.stats.totalWarnings;
-            document.getElementById('totalLogs').textContent = state.stats.totalLogs.toLocaleString();
-            document.getElementById('platform').textContent = state.stats.platform;
-            document.getElementById('platformVersion').textContent = state.stats.platformVersion;
+            // Calculate stats for current cluster
+            let clusterErrors = 0;
+            let clusterWarnings = 0;
+            let clusterLogs = 0;
+            
+            if (state.currentCluster) {
+                const clusterPrefix = state.currentCluster + '/';
+                for (const [podName, podLogs] of Object.entries(state.logs)) {
+                    if (podName.startsWith(clusterPrefix)) {
+                        const podStat = state.podStats[podName] || { errors: 0, warnings: 0, total: 0 };
+                        clusterErrors += podStat.errors;
+                        clusterWarnings += podStat.warnings;
+                        clusterLogs += podStat.total;
+                    }
+                }
+            } else {
+                // Single cluster or old format - use global stats
+                clusterErrors = state.stats.totalErrors;
+                clusterWarnings = state.stats.totalWarnings;
+                clusterLogs = state.stats.totalLogs;
+            }
+            
+            document.getElementById('totalErrors').textContent = clusterErrors;
+            document.getElementById('totalWarnings').textContent = clusterWarnings;
+            document.getElementById('totalLogs').textContent = clusterLogs.toLocaleString();
+            
+            // Get platform info from cluster context
+            const clusterContext = getClusterContext(state.currentCluster);
+            let platform = state.stats.platform;
+            let platformVersion = state.stats.platformVersion;
+            
+            if (clusterContext) {
+                const lines = clusterContext.split('\n');
+                for (const line of lines) {
+                    if (line.includes('Platform:')) {
+                        const match = line.match(/Platform:\s*(.+)/);
+                        if (match) platform = match[1].trim();
+                    } else if (line.includes('Kubernetes Version:') || line.includes('OpenShift Version:')) {
+                        const match = line.match(/(?:Kubernetes|OpenShift) Version:\s*(.+)/);
+                        if (match) platformVersion = match[1].trim();
+                    }
+                }
+            }
+            
+            document.getElementById('platform').textContent = platform;
+            document.getElementById('platformVersion').textContent = platformVersion;
             
             // Update platform version label based on platform type
             const platformVersionLabel = document.getElementById('platformVersionLabel');
@@ -2548,12 +2886,49 @@
                     break;
             }
             
-            document.getElementById('hspcVersion').textContent = state.stats.hspcVersion;
-            document.getElementById('hspccVersion').textContent = state.stats.hspccVersion;
-            document.getElementById('gitCommit').textContent = state.stats.gitCommit;
-            document.getElementById('goVersion').textContent = state.stats.goVersion;
-            document.getElementById('nodeCount').textContent = state.stats.nodeCount;
-            document.getElementById('collectionScriptVersion').textContent = state.stats.collectionScriptVersion;
+            // Get version info from cluster context
+            const clusterContextForVersions = getClusterContext(state.currentCluster);
+            let hspcVersion = state.stats.hspcVersion;
+            let hspccVersion = state.stats.hspccVersion;
+            let gitCommit = state.stats.gitCommit;
+            let goVersion = state.stats.goVersion;
+            let nodeCount = state.stats.nodeCount;
+            let collectionScriptVersion = state.stats.collectionScriptVersion;
+            
+            if (clusterContextForVersions) {
+                const lines = clusterContextForVersions.split('\n');
+                for (const line of lines) {
+                    if (line.includes('HSPC version') && hspcVersion === '-') {
+                        const match = line.match(/HSPC version:\s*(.+)/);
+                        if (match) hspcVersion = match[1].trim();
+                    } else if (line.includes('HSPCC version') && hspccVersion === '-') {
+                        const match = line.match(/HSPCC version:\s*(.+)/);
+                        if (match) hspccVersion = match[1].trim();
+                    } else if (line.includes('Git commit') && gitCommit === '-') {
+                        const match = line.match(/Git commit:\s*(.+)/);
+                        if (match) gitCommit = match[1].trim();
+                    } else if (line.includes('Go version') && goVersion === '-') {
+                        const match = line.match(/Go version:\s*(.+)/);
+                        if (match) goVersion = match[1].trim();
+                    } else if (line.includes('Collection Script Version') && collectionScriptVersion === '-') {
+                        const match = line.match(/Collection Script Version:\s*(.+)/);
+                        if (match) collectionScriptVersion = match[1].trim();
+                    }
+                }
+                
+                // Count nodes for current cluster
+                const nodeMatches = clusterContextForVersions.match(/Node Name:/g);
+                if (nodeMatches) {
+                    nodeCount = nodeMatches.length;
+                }
+            }
+            
+            document.getElementById('hspcVersion').textContent = hspcVersion;
+            document.getElementById('hspccVersion').textContent = hspccVersion;
+            document.getElementById('gitCommit').textContent = gitCommit;
+            document.getElementById('goVersion').textContent = goVersion;
+            document.getElementById('nodeCount').textContent = nodeCount;
+            document.getElementById('collectionScriptVersion').textContent = collectionScriptVersion;
         }
 
         // Update Pod List
@@ -2564,9 +2939,26 @@
             const allItem = createPodItem('all', 'All Containers', state.stats);
             podList.appendChild(allItem);
 
-            // Add individual pods
+            // Add individual pods (filter by cluster if selected)
             for (const [podName, stats] of Object.entries(state.podStats)) {
-                const item = createPodItem(podName, podName, stats);
+                // Filter by cluster if a specific cluster is selected
+                if (state.currentCluster) {
+                    const clusterPrefix = state.currentCluster + '/';
+                    if (!podName.startsWith(clusterPrefix) && podName !== 'all') {
+                        continue; // Skip pods from other clusters
+                    }
+                }
+                
+                // Extract display name (remove cluster prefix for display)
+                let displayName = podName;
+                if (state.currentCluster && podName.startsWith(state.currentCluster + '/')) {
+                    displayName = podName.substring(state.currentCluster.length + 1);
+                } else if (podName.includes('/')) {
+                    // Show cluster prefix if viewing all clusters
+                    displayName = podName;
+                }
+                
+                const item = createPodItem(podName, displayName, stats);
                 podList.appendChild(item);
             }
         }
@@ -2673,13 +3065,32 @@
                 if (state.disabledContainers.size > 0) {
                     allLogs = [];
                     for (const [containerName, containerLogs] of Object.entries(state.logs)) {
+                        // Filter by cluster if selected
+                        if (state.currentCluster) {
+                            const clusterPrefix = state.currentCluster + '/';
+                            if (!containerName.startsWith(clusterPrefix)) {
+                                continue; // Skip containers from other clusters
+                            }
+                        }
+                        
                         if (!state.disabledContainers.has(containerName)) {
                             allLogs = allLogs.concat(containerLogs);
                         }
                     }
                 } else {
-                    // All containers enabled (default)
-                    allLogs = state.allLogs;
+                    // All containers enabled (default) - filter by cluster if selected
+                    if (state.currentCluster) {
+                        allLogs = [];
+                        const clusterPrefix = state.currentCluster + '/';
+                        for (const [containerName, containerLogs] of Object.entries(state.logs)) {
+                            if (containerName.startsWith(clusterPrefix)) {
+                                allLogs = allLogs.concat(containerLogs);
+                            }
+                        }
+                    } else {
+                        // All clusters - use pre-concatenated logs
+                        allLogs = state.allLogs;
+                    }
                 }
             } else {
                 allLogs = state.logs[state.currentPod] || [];
@@ -2893,20 +3304,58 @@
             });
         }
 
-        // Render Configuration
+        // Helper to check if config entry belongs to current cluster
+        function configBelongsToCluster(configEntry) {
+            if (!state.currentCluster) return true; // Single cluster or old format
+            
+            const clusterPrefix = state.currentCluster + '/';
+            // Check if any node/pod associated with this config entry belongs to current cluster
+            if (configEntry.nodes && configEntry.nodes instanceof Set) {
+                for (const node of configEntry.nodes) {
+                    if (node.startsWith(clusterPrefix)) return true;
+                }
+                return false;
+            }
+            // For entries without nodes, check if they have a podName property
+            if (configEntry.podName && configEntry.podName.startsWith(clusterPrefix)) {
+                return true;
+            }
+            // If no node/pod info, include it (shouldn't happen, but be safe)
+            return true;
+        }
+        
+        // Render Configuration (filtered by current cluster)
         function renderConfiguration() {
             const configContent = document.getElementById('configContent');
             
-            const hostCount = Object.keys(state.config.hosts).length;
-            const volumeCount = Object.keys(state.config.volumes).length;
-            const storageClassCount = state.config.storageClasses?.length || 0;
+            // Filter config by current cluster
+            const filteredHosts = state.currentCluster 
+                ? Object.fromEntries(Object.entries(state.config.hosts).filter(([_, host]) => configBelongsToCluster(host)))
+                : state.config.hosts;
+            const filteredVolumes = state.currentCluster
+                ? Object.fromEntries(Object.entries(state.config.volumes).filter(([_, vol]) => configBelongsToCluster(vol)))
+                : state.config.volumes;
+            const filteredPorts = state.currentCluster
+                ? Object.fromEntries(Object.entries(state.config.ports).filter(([_, port]) => configBelongsToCluster(port)))
+                : state.config.ports;
+            const filteredArrays = state.currentCluster
+                ? Object.fromEntries(Object.entries(state.config.arrays).filter(([_, array]) => configBelongsToCluster(array)))
+                : state.config.arrays;
+            
+            // Filter storage classes - they don't have node info, so we'll show all for now
+            // (Storage classes are cluster-level resources, so this is probably fine)
+            const filteredStorageClasses = state.config.storageClasses || [];
+            
+            const hostCount = Object.keys(filteredHosts).length;
+            const volumeCount = Object.keys(filteredVolumes).length;
+            const storageClassCount = filteredStorageClasses.length;
             
             // Extract arrays and ports from storage classes (definitive source)
             const arraysFromSC = new Set();
             const portsFromSC = new Set();
             
-            if (state.config.storageClasses) {
-                state.config.storageClasses.forEach(sc => {
+            if (filteredStorageClasses) {
+                filteredStorageClasses.forEach(sc => {
                 if (sc.parameters.serialNumber) {
                     arraysFromSC.add(sc.parameters.serialNumber);
                 }
@@ -2923,8 +3372,8 @@
             }
             
             // Use storage class data if available, otherwise fall back to log-parsed data
-            const arrayCount = arraysFromSC.size > 0 ? arraysFromSC.size : Object.keys(state.config.arrays).length;
-            const portCount = portsFromSC.size > 0 ? portsFromSC.size : Object.keys(state.config.ports).length;
+            const arrayCount = arraysFromSC.size > 0 ? arraysFromSC.size : Object.keys(filteredArrays).length;
+            const portCount = portsFromSC.size > 0 ? portsFromSC.size : Object.keys(filteredPorts).length;
 
             if (hostCount === 0 && volumeCount === 0 && arrayCount === 0 && storageClassCount === 0) {
                 configContent.innerHTML = `
@@ -2938,11 +3387,11 @@
 
             let html = '<div style="padding: 20px;">';
 
-            // Problem Summary (if issues found)
-            const problemVolumes = Object.values(state.config.volumes).filter(v => v.errors > 0 || v.warnings > 0);
-            const problemHosts = Object.values(state.config.hosts).filter(h => h.errors > 0 || h.warnings > 0);
-            const problemPorts = Object.values(state.config.ports).filter(p => p.errors > 0 || p.warnings > 0);
-            const problemArrays = Object.values(state.config.arrays).filter(a => a.errors > 0 || a.warnings > 0);
+            // Problem Summary (if issues found) - use filtered config
+            const problemVolumes = Object.values(filteredVolumes).filter(v => v.errors > 0 || v.warnings > 0);
+            const problemHosts = Object.values(filteredHosts).filter(h => h.errors > 0 || h.warnings > 0);
+            const problemPorts = Object.values(filteredPorts).filter(p => p.errors > 0 || p.warnings > 0);
+            const problemArrays = Object.values(filteredArrays).filter(a => a.errors > 0 || a.warnings > 0);
 
             if (problemVolumes.length > 0 || problemHosts.length > 0 || problemPorts.length > 0 || problemArrays.length > 0) {
                 html += `
@@ -3009,8 +3458,8 @@
                 // Build array info from storage classes (definitive source)
                 const arraysInfo = new Map();
                 
-                if (state.config.storageClasses) {
-                    state.config.storageClasses.forEach(sc => {
+                if (filteredStorageClasses) {
+                    filteredStorageClasses.forEach(sc => {
                     const serial = sc.parameters.serialNumber;
                     if (serial) {
                         if (!arraysInfo.has(serial)) {
@@ -3041,7 +3490,7 @@
                 }
                 
                 // Merge with log-parsed data if available
-                Object.values(state.config.arrays).forEach(array => {
+                Object.values(filteredArrays).forEach(array => {
                     if (arraysInfo.has(array.serial)) {
                         const info = arraysInfo.get(array.serial);
                         info.volumes = array.volumes;
@@ -3124,7 +3573,7 @@
                             <tbody>
                 `;
 
-                const sortedHosts = Object.values(state.config.hosts).sort((a, b) => 
+                const sortedHosts = Object.values(filteredHosts).sort((a, b) => 
                     parseInt(a.hostNumber) - parseInt(b.hostNumber)
                 );
 
@@ -3183,7 +3632,7 @@
                             <tbody>
                 `;
 
-                const sortedVolumes = Object.values(state.config.volumes).sort((a, b) => 
+                const sortedVolumes = Object.values(filteredVolumes).sort((a, b) => 
                     parseInt(a.ldevId) - parseInt(b.ldevId)
                 );
 
@@ -3264,7 +3713,7 @@
                 `;
 
                 // Sort by array serial first, then port name (groups ports by array)
-                const sortedPorts = Object.values(state.config.ports).sort((a, b) => {
+                const sortedPorts = Object.values(filteredPorts).sort((a, b) => {
                     const arrayCompare = (a.arraySerial || '').localeCompare(b.arraySerial || '');
                     if (arrayCompare !== 0) return arrayCompare;
                     return a.name.localeCompare(b.name);
@@ -3437,15 +3886,46 @@
         // Render Cluster Info
         // Render Health Summary
         function renderHealthSummary() {
-            // Count actual pods (not individual containers)
+            // Count actual pods (not individual containers) - filtered by cluster
             const podGroups = groupContainersByPod();
             const totalPods = Object.keys(podGroups).length;
             const podsWithErrors = Object.values(podGroups).filter(p => p.totalErrors > 0).length;
             const podsWithWarnings = Object.values(podGroups).filter(p => p.totalWarnings > 0).length;
             
-            const totalNodes = Object.keys(state.nodeHealth).length;
-            const nodesWithErrors = Object.values(state.nodeHealth).filter(n => n.errors > 0).length;
-            const nodesWithWarnings = Object.values(state.nodeHealth).filter(n => n.warnings > 0).length;
+            // Calculate node stats for current cluster
+            const clusterPrefix = state.currentCluster ? state.currentCluster + '/' : null;
+            let totalNodes = 0;
+            let nodesWithErrors = 0;
+            let nodesWithWarnings = 0;
+            
+            if (clusterPrefix) {
+                const filteredNodes = Object.values(state.nodeHealth).filter(health => 
+                    health.pods.some(pod => pod.startsWith(clusterPrefix))
+                );
+                totalNodes = filteredNodes.length;
+                nodesWithErrors = filteredNodes.filter(n => n.errors > 0).length;
+                nodesWithWarnings = filteredNodes.filter(n => n.warnings > 0).length;
+            } else {
+                totalNodes = Object.keys(state.nodeHealth).length;
+                nodesWithErrors = Object.values(state.nodeHealth).filter(n => n.errors > 0).length;
+                nodesWithWarnings = Object.values(state.nodeHealth).filter(n => n.warnings > 0).length;
+            }
+            
+            // Calculate cluster-specific error/warning counts
+            let clusterErrors = 0;
+            let clusterWarnings = 0;
+            if (clusterPrefix) {
+                for (const [podName, podLogs] of Object.entries(state.logs)) {
+                    if (podName.startsWith(clusterPrefix)) {
+                        const podStat = state.podStats[podName] || { errors: 0, warnings: 0 };
+                        clusterErrors += podStat.errors;
+                        clusterWarnings += podStat.warnings;
+                    }
+                }
+            } else {
+                clusterErrors = state.stats.totalErrors;
+                clusterWarnings = state.stats.totalWarnings;
+            }
             
             let html = `
                 <div class="config-section">
@@ -3467,14 +3947,14 @@
                         </div>
                         <div style="background: #2d2d30; padding: 15px; border-radius: 8px; border-left: 4px solid #dc3545;">
                             <div style="font-size: 14px; margin-bottom: 5px;">Total Errors</div>
-                            <div style="font-size: 28px; font-weight: bold; color: #dc3545;">${state.stats.totalErrors}</div>
+                            <div style="font-size: 28px; font-weight: bold; color: #dc3545;">${clusterErrors}</div>
                             <div style="font-size: 12px; margin-top: 5px;">
                                 Across all log sources
                             </div>
                         </div>
                         <div style="background: #2d2d30; padding: 15px; border-radius: 8px; border-left: 4px solid #ffc107;">
                             <div style="font-size: 14px; margin-bottom: 5px;">Total Warnings</div>
-                            <div style="font-size: 28px; font-weight: bold; color: #ffc107;">${state.stats.totalWarnings}</div>
+                            <div style="font-size: 28px; font-weight: bold; color: #ffc107;">${clusterWarnings}</div>
                             <div style="font-size: 12px; margin-top: 5px;">
                                 Across all log sources
                             </div>
@@ -3498,17 +3978,56 @@
             }
             
             // Add volume operations
-            if (state.volumeOperations.length > 0) {
+            const volumeOps = clusterPrefix 
+                ? state.volumeOperations.filter(op => op.podName && op.podName.startsWith(clusterPrefix))
+                : state.volumeOperations;
+            if (volumeOps.length > 0) {
                 html += renderVolumeOperations();
             }
             
             return html;
         }
 
-        // Render Error Categories
+        // Render Error Categories (filtered by current cluster)
         function renderErrorCategories() {
+            // Check if errorCategories exists and is an object
+            if (!state.errorCategories || typeof state.errorCategories !== 'object') {
+                return '';
+            }
+            
+            // Filter categories by current cluster
+            const clusterPrefix = state.currentCluster ? state.currentCluster + '/' : null;
+            
             const categories = Object.entries(state.errorCategories)
-                .filter(([_, data]) => data.count > 0)
+                .map(([category, data]) => {
+                    // Validate data structure
+                    if (!data || typeof data !== 'object') {
+                        return null;
+                    }
+                    
+                    // Ensure pods is an array
+                    if (!data.pods || !Array.isArray(data.pods)) {
+                        return null;
+                    }
+                    
+                    // Filter pods by cluster
+                    if (clusterPrefix) {
+                        const filteredPods = data.pods.filter(pod => pod && typeof pod === 'string' && pod.startsWith(clusterPrefix));
+                        if (filteredPods.length === 0) return null;
+                        return [category, { ...data, pods: filteredPods, count: filteredPods.length }];
+                    }
+                    
+                    // Ensure count exists for non-cluster filtered data
+                    const count = data.count !== undefined ? data.count : data.pods.length;
+                    return [category, { ...data, count }];
+                })
+                .filter((entry) => {
+                    if (!entry || !Array.isArray(entry) || entry.length < 2) {
+                        return false;
+                    }
+                    const data = entry[1];
+                    return data && typeof data === 'object' && data.count > 0;
+                })
                 .sort((a, b) => {
                     // Sort alphabetically by category name
                     const nameA = a[0].split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
@@ -3537,12 +4056,16 @@
             
             for (const [category, data] of categories) {
                 const categoryName = category.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                // Remove cluster prefix from pod names for display
+                const displayPods = clusterPrefix 
+                    ? data.pods.map(pod => pod.startsWith(clusterPrefix) ? pod.substring(clusterPrefix.length) : pod)
+                    : data.pods;
                 html += `
                     <tr class="clickable-row" onclick="filterByCategory('${category}')" style="cursor: pointer;" title="Click to view these logs">
                         <td><strong>${categoryName}</strong></td>
                         <td style="font-size: 12px; color: #6c757d;">${data.description}</td>
                         <td><span class="error-badge">${data.count}</span></td>
-                        <td style="font-size: 12px;">${data.pods.join(', ')}</td>
+                        <td style="font-size: 12px;">${displayPods.join(', ')}</td>
                     </tr>
                 `;
             }
@@ -3579,11 +4102,17 @@
             }
         }
 
-        // Group containers by pod
+        // Group containers by pod (filtered by current cluster)
         function groupContainersByPod() {
             const podGroups = {};
+            const clusterPrefix = state.currentCluster ? state.currentCluster + '/' : null;
             
             for (const [fullName, health] of Object.entries(state.podHealth)) {
+                // Filter by cluster if selected
+                if (clusterPrefix && !fullName.startsWith(clusterPrefix)) {
+                    continue; // Skip pods from other clusters
+                }
+                
                 // Split by underscore to separate pod name from container name
                 const parts = fullName.split('_');
                 let podName, containerName;
@@ -3627,7 +4156,7 @@
             return podGroups;
         }
 
-        // Render Pod Health
+        // Render Pod Health (filtered by current cluster)
         function renderPodHealth() {
             const podGroups = groupContainersByPod();
             const pods = Object.entries(podGroups)
@@ -3636,6 +4165,8 @@
             if (pods.length === 0) {
                 return '';
             }
+            
+            const clusterPrefix = state.currentCluster ? state.currentCluster + '/' : null;
             
             let html = `
                 <div class="config-section">
@@ -3654,6 +4185,10 @@
             `;
             
             for (const [podName, podData] of pods) {
+                // Remove cluster prefix from pod name for display
+                const displayPodName = clusterPrefix && podName.startsWith(clusterPrefix) 
+                    ? podName.substring(clusterPrefix.length) 
+                    : podName;
                 let statusBadge = '<span class="status-badge status-ok">OK</span>';
                 if (podData.totalErrors > 0) {
                     statusBadge = `<span class="error-badge">${podData.totalErrors} ERROR(S)</span>`;
@@ -3698,14 +4233,16 @@
             return html;
         }
 
-        // Render Recent Events
+        // Render Recent Events (filtered by current cluster)
         function renderRecentEvents() {
-            if (!state.clusterContext) {
+            // Get cluster context for current cluster (handles both old string and new object format)
+            const clusterContextContent = getClusterContext(state.currentCluster);
+            if (!clusterContextContent) {
                 return '';
             }
             
             // Parse cluster sections to find Recent Events
-            const sections = parseClusterSections(state.clusterContext);
+            const sections = parseClusterSections(clusterContextContent);
             const recentEventsSection = sections.find(s => s.title === 'Recent Events');
             
             if (!recentEventsSection) {
@@ -3784,10 +4321,36 @@
             return html;
         }
 
-        // Render Node Health
+        // Render Node Health (filtered by current cluster)
         function renderNodeHealth() {
-            const nodes = Object.entries(state.nodeHealth)
+            const clusterPrefix = state.currentCluster ? state.currentCluster + '/' : null;
+            
+            // Filter nodes to only include those with pods from current cluster
+            const filteredNodes = Object.entries(state.nodeHealth)
+                .map(([nodeName, health]) => {
+                    if (clusterPrefix) {
+                        const filteredPods = health.pods.filter(pod => pod.startsWith(clusterPrefix));
+                        if (filteredPods.length === 0) return null;
+                        // Recalculate errors/warnings based on filtered pods
+                        let filteredErrors = 0;
+                        let filteredWarnings = 0;
+                        for (const pod of filteredPods) {
+                            const podHealth = state.podHealth[pod];
+                            if (podHealth) {
+                                filteredErrors += podHealth.errors || 0;
+                                filteredWarnings += podHealth.warnings || 0;
+                            }
+                        }
+                        return [nodeName, { ...health, pods: filteredPods, errors: filteredErrors, warnings: filteredWarnings }];
+                    }
+                    return [nodeName, health];
+                })
+                .filter(([_, health]) => health !== null)
                 .sort((a, b) => (b[1].errors + b[1].warnings) - (a[1].errors + a[1].warnings));
+            
+            if (filteredNodes.length === 0) {
+                return '';
+            }
             
             let html = `
                 <div class="config-section">
@@ -3803,7 +4366,7 @@
                         <tbody>
             `;
             
-            for (const [nodeName, health] of nodes) {
+            for (const [nodeName, health] of filteredNodes) {
                 let statusBadge = '<span class="status-badge status-ok">OK</span>';
                 if (health.errors > 0) {
                     statusBadge = `<span class="error-badge">${health.errors} ERROR(S)</span>`;
@@ -3813,10 +4376,15 @@
                 
                 const rowClass = health.errors > 0 ? 'error-row' : (health.warnings > 0 ? 'warning-row' : '');
                 
+                // Remove cluster prefix from pod names for display
+                const displayPods = clusterPrefix 
+                    ? health.pods.map(pod => pod.startsWith(clusterPrefix) ? pod.substring(clusterPrefix.length) : pod)
+                    : health.pods;
+                
                 html += `
                     <tr class="${rowClass}">
                         <td><strong>${nodeName}</strong></td>
-                        <td style="font-size: 12px;">${health.pods.join(', ')}</td>
+                        <td style="font-size: 12px;">${displayPods.join(', ')}</td>
                         <td>${statusBadge}</td>
                     </tr>
                 `;
@@ -3833,8 +4401,16 @@
 
         // Render Volume Operations
         function renderVolumeOperations() {
+            const clusterPrefix = state.currentCluster ? state.currentCluster + '/' : null;
+            
+            // Filter operations by cluster
+            let operations = state.volumeOperations;
+            if (clusterPrefix) {
+                operations = operations.filter(op => op.podName && op.podName.startsWith(clusterPrefix));
+            }
+            
             // Show last 20 operations, most recent first
-            const operations = state.volumeOperations.slice(-20).reverse();
+            operations = operations.slice(-20).reverse();
             
             let html = `
                 <div class="config-section">
@@ -3852,6 +4428,8 @@
                         <tbody>
             `;
             
+            const clusterPrefixForOps = state.currentCluster ? state.currentCluster + '/' : null;
+            
             for (const op of operations) {
                 const statusBadge = op.status === 'Success' 
                     ? '<span class="status-badge status-ok">Success</span>'
@@ -3859,12 +4437,17 @@
                 
                 const rowClass = op.status !== 'Success' ? 'error-row' : '';
                 
+                // Remove cluster prefix from pod name for display
+                const displayPod = clusterPrefixForOps && op.podName && op.podName.startsWith(clusterPrefixForOps)
+                    ? op.podName.substring(clusterPrefixForOps.length)
+                    : (op.pod || op.podName || '');
+                
                 html += `
                     <tr class="${rowClass}">
                         <td style="font-size: 11px;">${op.timestamp}</td>
                         <td><strong>${op.operation}</strong></td>
                         <td style="font-size: 11px; font-family: monospace;">${op.volumeId}</td>
-                        <td style="font-size: 11px;">${op.pod}</td>
+                        <td style="font-size: 11px;">${displayPod}</td>
                         <td>${statusBadge}</td>
                     </tr>
                 `;
@@ -3893,9 +4476,9 @@
         function renderClusterInfo() {
             let html = '';
             
-            // Render cluster context sections if available (static configuration)
-            // Exclude "Recent Events" as it's shown in Health & Diagnostics tab
-            if (state.clusterContext) {
+            // Handle both old format (string) and new format (object with cluster keys)
+            if (typeof state.clusterContext === 'string') {
+                // Old format - single cluster
                 const sections = parseClusterSections(state.clusterContext);
                 const filteredSections = sections.filter(s => s.title !== 'Recent Events');
                 html += filteredSections.map((section, index) => `
@@ -3910,6 +4493,43 @@
                         <div class="context-content" id="content-${index}">${escapeHtml(section.content)}</div>
                     </div>
                 `).join('');
+            } else if (typeof state.clusterContext === 'object' && state.clusterContext !== null) {
+                // New format - multiple clusters
+                let sectionIndex = 0;
+                let clustersToShow = [];
+                try {
+                    clustersToShow = state.currentCluster 
+                        ? [state.currentCluster]  // Show only selected cluster
+                        : Object.keys(state.clusterContext);  // Show all clusters
+                } catch (e) {
+                    console.error('Error getting cluster keys:', e);
+                    clustersToShow = [];
+                }
+                
+                for (const clusterName of clustersToShow) {
+                    const clusterContent = state.clusterContext[clusterName];
+                    if (!clusterContent) continue;
+                    
+                    html += `<div class="context-section" style="margin-bottom: 20px;"><h3 style="color: var(--accent-blue); margin-bottom: 10px;">Cluster: ${clusterName}</h3>`;
+                    const sections = parseClusterSections(clusterContent);
+                    const filteredSections = sections.filter(s => s.title !== 'Recent Events');
+                    html += filteredSections.map((section) => {
+                        const idx = sectionIndex++;
+                        return `
+                            <div class="context-section">
+                                <div class="context-header">
+                                    <span onclick="toggleSection(${idx})" style="cursor: pointer; flex: 1;">${section.title}</span>
+                                    <div class="context-header-controls">
+                                        <button class="copy-section-btn" onclick="copySectionContent(${idx}, event)" title="Copy to clipboard">📋 Copy</button>
+                                        <span class="toggle-icon" id="toggle-${idx}" onclick="toggleSection(${idx})" style="cursor: pointer;">▼</span>
+                                    </div>
+                                </div>
+                                <div class="context-content" id="content-${idx}">${escapeHtml(section.content)}</div>
+                            </div>
+                        `;
+                    }).join('');
+                    html += `</div>`;
+                }
             }
 
             clusterContent.innerHTML = html || '<div class="empty-state"><div class="empty-state-icon">🔧</div><p>No cluster information available</p></div>';
