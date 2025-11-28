@@ -1886,8 +1886,14 @@
         function switchCluster(cluster) {
             state.currentCluster = cluster;
             invalidateCache(); // Clear filtered cache when switching clusters
+            
+            // Clear the log view when switching clusters
+            // This prevents showing logs from the previous cluster
+            logContent.innerHTML = '';
+            state.currentPod = 'all'; // Reset to "All Containers" view
+            
             setupClusterSelector();
-            updateUI();
+            updateUI(); // This will update the pod list and set the active state
         }
 
         // Parse timestamp from log line
@@ -2421,10 +2427,11 @@
                     if (level === 'ERROR') state.config.arrays[arraySerial].errors++;
                     if (level === 'WARNING') state.config.arrays[arraySerial].warnings++;
 
-                    // Track port usage
+                    // Track port usage - use composite key (port:arraySerial) to handle same port name on different arrays
                     for (const port of ports) {
-                        if (!state.config.ports[port]) {
-                            state.config.ports[port] = {
+                        const portKey = `${port}:${arraySerial}`;
+                        if (!state.config.ports[portKey]) {
+                            state.config.ports[portKey] = {
                                 name: port,
                                 volumes: new Set(),
                                 arraySerial: arraySerial,
@@ -2432,11 +2439,11 @@
                                 warnings: 0
                             };
                         }
-                        state.config.ports[port].volumes.add(volumeId);
+                        state.config.ports[portKey].volumes.add(volumeId);
                         state.config.arrays[arraySerial].ports.add(port);
                         
-                        if (level === 'ERROR') state.config.ports[port].errors++;
-                        if (level === 'WARNING') state.config.ports[port].warnings++;
+                        if (level === 'ERROR') state.config.ports[portKey].errors++;
+                        if (level === 'WARNING') state.config.ports[portKey].warnings++;
                     }
                 }
             }
@@ -2493,7 +2500,8 @@
                     }
                 }
                 
-                // Extract platform (only need to check once)
+                // Extract platform - allow override by more specific detection
+                // First check for explicit Platform line (but allow override)
                 if (!platformSet) {
                     if (line.indexOf('Platform: OpenShift') !== -1) {
                         state.stats.platform = 'OpenShift';
@@ -2512,7 +2520,8 @@
                     }
                 }
                 
-                // Extract platform-specific version
+                // Extract platform-specific version and detect specific platforms
+                // These can override the generic "Kubernetes" platform
                 if (!versionSet) {
                     // OpenShift version from openshiftVersion field (if present)
                     if (line.indexOf('"openshiftVersion"') !== -1) {
@@ -2530,27 +2539,52 @@
                             versionSet = true;
                         }
                     }
-                    // k3s detection
-                    else if (line.indexOf('k3s') !== -1) {
-                        state.stats.platform = 'k3s';
-                        platformSet = true;
-                        const match = line.match(/k3s[^\s]*\+k3s(\d+)/);
-                        if (match && k8sVersion) {
-                            state.stats.platformVersion = k8sVersion;
-                            versionSet = true;
-                        }
-                    }
-                    // Rancher detection (RKE/RKE2)
-                    else if (line.indexOf('rancher') !== -1 || line.indexOf('rke2') !== -1) {
-                        if (line.indexOf('rke2') !== -1) {
-                            state.stats.platform = 'RKE2';
-                        } else {
-                            state.stats.platform = 'Rancher';
-                        }
+                    // Rancher detection (RKE/RKE2) - check BEFORE k3s since Rancher can use k3s as underlying distro
+                    // Check for RKE2 first (more specific), then generic Rancher
+                    if (line.indexOf('rke2') !== -1) {
+                        state.stats.platform = 'RKE2';
                         platformSet = true;
                         if (k8sVersion) {
                             state.stats.platformVersion = k8sVersion;
                             versionSet = true;
+                        }
+                    }
+                    // Rancher detection - look for Rancher-specific components
+                    // Rancher clusters typically have klipper-lb, local-path-provisioner, or mirrored images
+                    // Only set if not already detected as RKE2
+                    else if (line.indexOf('klipper-lb') !== -1 || 
+                             (line.indexOf('local-path-provisioner') !== -1 && line.indexOf('rancher/') !== -1) ||
+                             (line.indexOf('rancher/mirrored-') !== -1 && state.stats.platform !== 'RKE2')) {
+                        state.stats.platform = 'Rancher';
+                        platformSet = true;
+                        if (k8sVersion) {
+                            state.stats.platformVersion = k8sVersion;
+                            versionSet = true;
+                        }
+                    }
+                    // k3s detection - can override "Kubernetes" platform
+                    // Look for k3s in version strings (e.g., "v1.33.6+k3s1") or container runtime (e.g., "containerd://2.1.5-k3s1.33")
+                    // Only set if not already detected as Rancher/RKE2
+                    else if (line.indexOf('k3s') !== -1 && state.stats.platform !== 'Rancher' && state.stats.platform !== 'RKE2') {
+                        state.stats.platform = 'k3s';
+                        platformSet = true;
+                        // Extract k3s version from various formats:
+                        // - "v1.33.6+k3s1" -> use the full version
+                        // - "containerd://2.1.5-k3s1.33" -> extract k3s version part
+                        if (k8sVersion && k8sVersion.indexOf('k3s') !== -1) {
+                            state.stats.platformVersion = k8sVersion;
+                            versionSet = true;
+                        } else {
+                            // Try to extract from container runtime
+                            const k3sMatch = line.match(/k3s(\d+\.\d+)/);
+                            if (k3sMatch) {
+                                state.stats.platformVersion = k3sMatch[1];
+                                versionSet = true;
+                            } else if (k8sVersion) {
+                                // Fallback to k8s version
+                                state.stats.platformVersion = k8sVersion;
+                                versionSet = true;
+                            }
                         }
                     }
                 }
@@ -2578,11 +2612,27 @@
         
         // Lazy parse pod metadata (called when Health tab is first viewed)
         function parsePodMetadata(cluster = null) {
-            if (state.lazyParsed.podMetadata) {
-                return;
+            // Use the provided cluster or current cluster from state
+            const targetCluster = cluster || state.currentCluster;
+            
+            // For multi-cluster bundles, we need to parse metadata for each cluster
+            // But we only want to do this once per cluster
+            // For single-cluster bundles (cluster='default' or null), use a single key
+            if (targetCluster && targetCluster !== 'default') {
+                const clusterKey = `podMetadata_${targetCluster}`;
+                if (state.lazyParsed[clusterKey]) {
+                    return;
+                }
+            } else {
+                // Single-cluster bundle or old format
+                if (state.lazyParsed.podMetadata) {
+                    return;
+                }
             }
             
-            const clusterContextContent = getClusterContext(cluster);
+            // For single-cluster bundles, getClusterContext might need null or 'default'
+            const contextCluster = (targetCluster && targetCluster !== 'default') ? targetCluster : null;
+            const clusterContextContent = getClusterContext(contextCluster);
             if (!clusterContextContent) {
                 return;
             }
@@ -2605,21 +2655,41 @@
                 }
                 
                 if (currentPod) {
+                    // Build full pod name with cluster prefix for lookup
+                    // For single-cluster bundles (cluster='default'), pod names don't have prefixes
+                    // For multi-cluster bundles, pod names have cluster prefixes (e.g., "primary-cluster/pod-name")
+                    const fullPodName = (targetCluster && targetCluster !== 'default') ? `${targetCluster}/${currentPod}` : currentPod;
+                    
+                    // Try to find the pod in state.podHealth with cluster prefix first, then without
+                    let podHealthKey = fullPodName;
+                    if (!state.podHealth[fullPodName]) {
+                        // Try without cluster prefix (for single-cluster or backward compatibility)
+                        if (state.podHealth[currentPod]) {
+                            podHealthKey = currentPod;
+                        } else if (targetCluster && targetCluster !== 'default') {
+                            // Try with cluster prefix if we haven't already
+                            const altFullName = `${targetCluster}/${currentPod}`;
+                            if (state.podHealth[altFullName]) {
+                                podHealthKey = altFullName;
+                            }
+                        }
+                    }
+                    
                     // Match "Node:" lines (format: "Node:             worker1.dc1.ocp.ucp.acoe.local/10.25.8.57")
                     if (!foundNode && line.indexOf('Node:') === 0) {
                         const nodeMatch = line.match(/Node:\s+([^\/\s]+)/);
                         if (nodeMatch) {
                             const nodeName = nodeMatch[1].trim();
                             // Store in podHealth if it exists, otherwise create entry
-                            if (!state.podHealth[currentPod]) {
-                                state.podHealth[currentPod] = {
+                            if (!state.podHealth[podHealthKey]) {
+                                state.podHealth[podHealthKey] = {
                                     errors: 0,
                                     warnings: 0,
                                     container: currentPod,
                                     node: null
                                 };
                             }
-                            state.podHealth[currentPod].node = nodeName;
+                            state.podHealth[podHealthKey].node = nodeName;
                             foundNode = true;
                         }
                     }
@@ -2634,15 +2704,15 @@
                             
                             if (!isNaN(startTime.getTime())) {
                                 // Store in podHealth if it exists, otherwise create entry
-                                if (!state.podHealth[currentPod]) {
-                                    state.podHealth[currentPod] = {
+                                if (!state.podHealth[podHealthKey]) {
+                                    state.podHealth[podHealthKey] = {
                                         errors: 0,
                                         warnings: 0,
                                         container: currentPod,
                                         node: null
                                     };
                                 }
-                                state.podHealth[currentPod].startTime = startTime;
+                                state.podHealth[podHealthKey].startTime = startTime;
                                 foundStartTime = true;
                             }
                         }
@@ -2655,7 +2725,13 @@
                 }
             }
             
-            state.lazyParsed.podMetadata = true;
+            // Mark as parsed for this cluster
+            if (targetCluster && targetCluster !== 'default') {
+                state.lazyParsed[`podMetadata_${targetCluster}`] = true;
+            } else {
+                // Single-cluster bundle or old format
+                state.lazyParsed.podMetadata = true;
+            }
         }
         
         // Lazy parse storage classes (called when Configuration tab is first viewed)
@@ -2850,14 +2926,43 @@
             let platformVersion = state.stats.platformVersion;
             
             if (clusterContext) {
-                const lines = clusterContext.split('\n');
-                for (const line of lines) {
-                    if (line.includes('Platform:')) {
-                        const match = line.match(/Platform:\s*(.+)/);
-                        if (match) platform = match[1].trim();
-                    } else if (line.includes('Kubernetes Version:') || line.includes('OpenShift Version:')) {
-                        const match = line.match(/(?:Kubernetes|OpenShift) Version:\s*(.+)/);
-                        if (match) platformVersion = match[1].trim();
+                // Only use "Platform:" line from cluster-context.txt if we haven't detected a specific platform
+                // (k3s, Rancher, RKE2 detection happens during parsing and should take precedence)
+                const specificPlatforms = ['k3s', 'Rancher', 'RKE2', 'OpenShift'];
+                if (!specificPlatforms.includes(state.stats.platform)) {
+                    const lines = clusterContext.split('\n');
+                    for (const line of lines) {
+                        if (line.includes('Platform:')) {
+                            const match = line.match(/Platform:\s*(.+)/);
+                            if (match) platform = match[1].trim();
+                        }
+                    }
+                }
+                
+                // Extract platform version based on platform type
+                // For OpenShift, prioritize OpenShift-specific version sources
+                if (platform === 'OpenShift') {
+                    // First try to find openshiftVersion in JSON
+                    const openshiftVersionMatch = clusterContext.match(/"openshiftVersion"\s*:\s*"([^"]+)"/);
+                    if (openshiftVersionMatch) {
+                        platformVersion = openshiftVersionMatch[1].trim();
+                    } else {
+                        // Fall back to Server Version (which is OpenShift version)
+                        const serverVersionMatch = clusterContext.match(/Server Version:\s*(\S+)/);
+                        if (serverVersionMatch) {
+                            platformVersion = serverVersionMatch[1].trim();
+                        }
+                    }
+                } else {
+                    // For Kubernetes and other platforms, use Kubernetes Version or Server Version
+                    const k8sVersionMatch = clusterContext.match(/Kubernetes Version:\s*(\S+)/);
+                    if (k8sVersionMatch) {
+                        platformVersion = k8sVersionMatch[1].trim();
+                    } else {
+                        const serverVersionMatch = clusterContext.match(/Server Version:\s*(\S+)/);
+                        if (serverVersionMatch) {
+                            platformVersion = serverVersionMatch[1].trim();
+                        }
                     }
                 }
             }
@@ -3284,7 +3389,13 @@
                 line = line.replace(regex, '<span class="highlight">$1</span>');
             }
 
-            div.innerHTML = `<span class="source">[${log.source}]</span>${line}`;
+            // Strip cluster prefix from source display (views are now separated by cluster)
+            let displaySource = log.source;
+            if (state.currentCluster && log.source.startsWith(state.currentCluster + '/')) {
+                displaySource = log.source.substring(state.currentCluster.length + 1);
+            }
+
+            div.innerHTML = `<span class="source">[${displaySource}]</span>${line}`;
             return div;
         }
 
@@ -3320,8 +3431,171 @@
             if (configEntry.podName && configEntry.podName.startsWith(clusterPrefix)) {
                 return true;
             }
+            // For ports, check if any of their volumes belong to the current cluster
+            if (configEntry.volumes && configEntry.volumes instanceof Set) {
+                for (const volumeId of configEntry.volumes) {
+                    const volume = state.config.volumes[volumeId];
+                    if (volume && volume.nodes && volume.nodes instanceof Set) {
+                        for (const node of volume.nodes) {
+                            if (node.startsWith(clusterPrefix)) return true;
+                        }
+                    }
+                }
+                return false;
+            }
             // If no node/pod info, include it (shouldn't happen, but be safe)
             return true;
+        }
+        
+        // Helper to get storage classes, arrays, and ports used by pods in current cluster
+        function getClusterStorageResources(cluster) {
+            if (!cluster) {
+                return {
+                    storageClasses: state.config.storageClasses || [],
+                    arrays: new Set(),
+                    ports: new Set()
+                };
+            }
+            
+            // Get storage classes directly from this cluster's context (don't filter by volumes)
+            const clusterContextContent = getClusterContext(cluster);
+            const clusterStorageClasses = [];
+            
+            if (clusterContextContent) {
+                // Parse storage classes from this cluster's context
+                const scSectionMatch = clusterContextContent.match(/===\s+HSPC StorageClasses\s+===\n([\s\S]*?)(?:\n===|$)/);
+                if (scSectionMatch) {
+                    const scSection = scSectionMatch[1];
+                    const scBlocks = scSection.split(/(?=^allowVolumeExpansion:)/m).filter(b => b.trim() && b.includes('kind: StorageClass'));
+                    
+                    for (const block of scBlocks) {
+                        try {
+                            const sc = {
+                                name: null,
+                                isDefault: false,
+                                type: 'standard',
+                                provisioner: null,
+                                reclaimPolicy: null,
+                                volumeBindingMode: null,
+                                allowVolumeExpansion: false,
+                                parameters: {},
+                                creationTimestamp: null
+                            };
+                            
+                            // Parse basic fields
+                            const nameMatch = block.match(/^\s*name:\s*(.+)$/m);
+                            if (nameMatch) sc.name = nameMatch[1].trim();
+                            
+                            const provisionerMatch = block.match(/^provisioner:\s*(.+)$/m);
+                            if (provisionerMatch) sc.provisioner = provisionerMatch[1].trim();
+                            
+                            const reclaimMatch = block.match(/^reclaimPolicy:\s*(.+)$/m);
+                            if (reclaimMatch) sc.reclaimPolicy = reclaimMatch[1].trim();
+                            
+                            const bindingMatch = block.match(/^volumeBindingMode:\s*(.+)$/m);
+                            if (bindingMatch) sc.volumeBindingMode = bindingMatch[1].trim();
+                            
+                            const expansionMatch = block.match(/^allowVolumeExpansion:\s*(.+)$/m);
+                            if (expansionMatch) sc.allowVolumeExpansion = expansionMatch[1].trim() === 'true';
+                            
+                            const defaultMatch = block.match(/storageclass\.kubernetes\.io\/is-default-class:\s*"true"/);
+                            if (defaultMatch) sc.isDefault = true;
+                            
+                            const timestampMatch = block.match(/creationTimestamp:\s*"([^"]+)"/);
+                            if (timestampMatch) sc.creationTimestamp = timestampMatch[1].trim();
+                            
+                            // Parse parameters section
+                            const paramsMatch = block.match(/^parameters:\s*\n((?:^\s{2}\S.*\n?)+)/m);
+                            if (paramsMatch) {
+                                const paramsSection = paramsMatch[1];
+                                const paramLines = paramsSection.split('\n').filter(l => l.trim());
+                                
+                                for (const line of paramLines) {
+                                    const paramMatch = line.match(/^\s{2}(\S+):\s*(.+)$/);
+                                    if (paramMatch) {
+                                        const key = paramMatch[1].trim();
+                                        const value = paramMatch[2].trim().replace(/^"|"$/g, '');
+                                        sc.parameters[key] = value;
+                                    }
+                                }
+                            }
+                            
+                            // Determine if this is a stretched (GAD) storage class
+                            if (sc.parameters.replicationType === 'stretched') {
+                                sc.type = 'stretched';
+                            }
+                            
+                            // Only add if we got a name
+                            if (sc.name) {
+                                clusterStorageClasses.push(sc);
+                            }
+                        } catch (e) {
+                            console.error('Error parsing storage class block:', e);
+                        }
+                    }
+                }
+            }
+            
+            // For arrays and ports, we can still track from volumes/hosts if needed
+            // But for storage classes, we return all from the cluster context
+            const clusterPrefix = cluster + '/';
+            const clusterPodNames = new Set();
+            
+            // Get all pod names for this cluster
+            for (const podName of Object.keys(state.podStats)) {
+                if (podName.startsWith(clusterPrefix)) {
+                    clusterPodNames.add(podName);
+                }
+            }
+            
+            // Find arrays and ports used by volumes from these pods (for reference, not for filtering)
+            const usedArrays = new Set();
+            const usedPorts = new Set();
+            
+            // Check volumes - volumes have a nodes Set, not podName
+            for (const [volId, vol] of Object.entries(state.config.volumes)) {
+                if (vol.nodes && vol.nodes instanceof Set) {
+                    // Check if any node in this volume belongs to the current cluster
+                    let belongsToCluster = false;
+                    for (const node of vol.nodes) {
+                        if (clusterPodNames.has(node)) {
+                            belongsToCluster = true;
+                            break;
+                        }
+                    }
+                    if (belongsToCluster) {
+                        if (vol.arraySerial) {
+                            usedArrays.add(vol.arraySerial);
+                        }
+                        // Volumes have a ports array, not a single port
+                        // Build composite keys (port:arraySerial) to match how ports are stored
+                        if (vol.ports && Array.isArray(vol.ports) && vol.arraySerial) {
+                            for (const port of vol.ports) {
+                                const portKey = `${port}:${vol.arraySerial}`;
+                                usedPorts.add(portKey);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Also check hosts (they may reference arrays/ports)
+            for (const [hostId, host] of Object.entries(state.config.hosts)) {
+                if (configBelongsToCluster(host)) {
+                    if (host.arraySerial) {
+                        usedArrays.add(host.arraySerial);
+                    }
+                    if (host.port) {
+                        usedPorts.add(host.port);
+                    }
+                }
+            }
+            
+            return {
+                storageClasses: clusterStorageClasses, // All storage classes from cluster context
+                arrays: usedArrays,
+                ports: usedPorts
+            };
         }
         
         // Render Configuration (filtered by current cluster)
@@ -3335,45 +3609,87 @@
             const filteredVolumes = state.currentCluster
                 ? Object.fromEntries(Object.entries(state.config.volumes).filter(([_, vol]) => configBelongsToCluster(vol)))
                 : state.config.volumes;
+            // Get cluster-specific storage resources first (needed for port filtering)
+            const clusterResources = getClusterStorageResources(state.currentCluster);
+            const filteredStorageClasses = clusterResources.storageClasses;
+            const clusterArrays = clusterResources.arrays;
+            const clusterPorts = clusterResources.ports;
+            
+            // Filter ports: use clusterPorts set if available, otherwise fall back to configBelongsToCluster
+            // Port keys are now composite (portName:arraySerial)
             const filteredPorts = state.currentCluster
-                ? Object.fromEntries(Object.entries(state.config.ports).filter(([_, port]) => configBelongsToCluster(port)))
+                ? Object.fromEntries(Object.entries(state.config.ports).filter(([portKey, port]) => {
+                    // First check if port key (composite) is in clusterPorts set
+                    if (clusterPorts && clusterPorts.has(portKey)) {
+                        return true;
+                    }
+                    // Fall back to configBelongsToCluster check
+                    return configBelongsToCluster(port);
+                }))
                 : state.config.ports;
             const filteredArrays = state.currentCluster
                 ? Object.fromEntries(Object.entries(state.config.arrays).filter(([_, array]) => configBelongsToCluster(array)))
                 : state.config.arrays;
             
-            // Filter storage classes - they don't have node info, so we'll show all for now
-            // (Storage classes are cluster-level resources, so this is probably fine)
-            const filteredStorageClasses = state.config.storageClasses || [];
-            
             const hostCount = Object.keys(filteredHosts).length;
             const volumeCount = Object.keys(filteredVolumes).length;
             const storageClassCount = filteredStorageClasses.length;
             
-            // Extract arrays and ports from storage classes (definitive source)
-            const arraysFromSC = new Set();
-            const portsFromSC = new Set();
+            // Build ports from storage classes (will be used for count and table)
+            const portsInfo = new Map();
             
-            if (filteredStorageClasses) {
+            if (filteredStorageClasses && filteredStorageClasses.length > 0) {
                 filteredStorageClasses.forEach(sc => {
-                if (sc.parameters.serialNumber) {
-                    arraysFromSC.add(sc.parameters.serialNumber);
-                }
-                if (sc.parameters.portID) {
-                    sc.parameters.portID.split(',').forEach(p => portsFromSC.add(p.trim()));
-                }
-                if (sc.parameters.primaryPortID) {
-                    sc.parameters.primaryPortID.split(',').forEach(p => portsFromSC.add(p.trim()));
-                }
-                if (sc.parameters.secondaryPortID) {
-                    sc.parameters.secondaryPortID.split(',').forEach(p => portsFromSC.add(p.trim()));
-                }
+                    const serial = sc.parameters && sc.parameters.serialNumber ? sc.parameters.serialNumber.trim() : null;
+                    if (!serial) return;
+                    
+                    // Collect ports from this storage class and create entries
+                    if (sc.parameters) {
+                        const portParams = [];
+                        if (sc.parameters.portID) {
+                            portParams.push(...sc.parameters.portID.split(',').map(p => p.trim()));
+                        }
+                        if (sc.parameters.primaryPortID) {
+                            portParams.push(...sc.parameters.primaryPortID.split(',').map(p => p.trim()));
+                        }
+                        if (sc.parameters.secondaryPortID) {
+                            portParams.push(...sc.parameters.secondaryPortID.split(',').map(p => p.trim()));
+                        }
+                        
+                        // Create port entries with composite keys (port:arraySerial)
+                        for (const portName of portParams) {
+                            if (!portName) continue;
+                            const portKey = `${portName}:${serial}`;
+                            
+                            if (!portsInfo.has(portKey)) {
+                                portsInfo.set(portKey, {
+                                    name: portName,
+                                    arraySerial: serial,
+                                    volumes: new Set(),
+                                    errors: 0,
+                                    warnings: 0
+                                });
+                            }
+                        }
+                    }
                 });
             }
             
-            // Use storage class data if available, otherwise fall back to log-parsed data
-            const arrayCount = arraysFromSC.size > 0 ? arraysFromSC.size : Object.keys(filteredArrays).length;
-            const portCount = portsFromSC.size > 0 ? portsFromSC.size : Object.keys(filteredPorts).length;
+            const portCount = portsInfo.size;
+            
+            // Extract arrays from storage classes ONLY (definitive source)
+            const arraysFromSC = new Set();
+            
+            if (filteredStorageClasses && filteredStorageClasses.length > 0) {
+                filteredStorageClasses.forEach(sc => {
+                    if (sc.parameters && sc.parameters.serialNumber) {
+                        arraysFromSC.add(sc.parameters.serialNumber.trim());
+                    }
+                });
+            }
+            
+            // Array count is now based ONLY on storage classes
+            const arrayCount = arraysFromSC.size;
 
             if (hostCount === 0 && volumeCount === 0 && arrayCount === 0 && storageClassCount === 0) {
                 configContent.innerHTML = `
@@ -3453,53 +3769,50 @@
                 </div>
             `;
 
-            // Storage Arrays Table (from storage classes + logs)
+            // Storage Arrays Table (from storage classes ONLY)
             if (arrayCount > 0) {
-                // Build array info from storage classes (definitive source)
+                // Build array info ONLY from storage classes (definitive source)
                 const arraysInfo = new Map();
                 
-                if (filteredStorageClasses) {
+                if (filteredStorageClasses && filteredStorageClasses.length > 0) {
                     filteredStorageClasses.forEach(sc => {
-                    const serial = sc.parameters.serialNumber;
-                    if (serial) {
+                        const serial = sc.parameters && sc.parameters.serialNumber ? sc.parameters.serialNumber.trim() : null;
+                        if (!serial) return;
+                        
+                        // Get or create array entry
                         if (!arraysInfo.has(serial)) {
                             arraysInfo.set(serial, {
                                 serial: serial,
                                 storageClasses: [],
                                 ports: new Set(),
-                                volumes: new Set(),
                                 errors: 0,
                                 warnings: 0
                             });
                         }
-                        const info = arraysInfo.get(serial);
-                        info.storageClasses.push(sc.name);
                         
-                        // Collect ports
-                        if (sc.parameters.portID) {
-                            sc.parameters.portID.split(',').forEach(p => info.ports.add(p.trim()));
+                        const info = arraysInfo.get(serial);
+                        // Add storage class name if not already in the list
+                        if (!info.storageClasses.includes(sc.name)) {
+                            info.storageClasses.push(sc.name);
                         }
-                        if (sc.parameters.primaryPortID) {
-                            sc.parameters.primaryPortID.split(',').forEach(p => info.ports.add(p.trim()));
+                        
+                        // Collect ports from this storage class
+                        if (sc.parameters) {
+                            if (sc.parameters.portID) {
+                                sc.parameters.portID.split(',').forEach(p => info.ports.add(p.trim()));
+                            }
+                            if (sc.parameters.primaryPortID) {
+                                sc.parameters.primaryPortID.split(',').forEach(p => info.ports.add(p.trim()));
+                            }
+                            if (sc.parameters.secondaryPortID) {
+                                sc.parameters.secondaryPortID.split(',').forEach(p => info.ports.add(p.trim()));
+                            }
                         }
-                        if (sc.parameters.secondaryPortID) {
-                            sc.parameters.secondaryPortID.split(',').forEach(p => info.ports.add(p.trim()));
-                        }
-                    }
                     });
                 }
                 
-                // Merge with log-parsed data if available
-                Object.values(filteredArrays).forEach(array => {
-                    if (arraysInfo.has(array.serial)) {
-                        const info = arraysInfo.get(array.serial);
-                        info.volumes = array.volumes;
-                        info.errors = array.errors;
-                        info.warnings = array.warnings;
-                        // Merge ports from logs
-                        array.ports.forEach(p => info.ports.add(p));
-                    }
-                });
+                // No need to merge with log data or filter - we only use storage classes
+                // arraysInfo now contains all arrays from storage classes for this cluster
                 
                 html += `
                     <div id="storage-arrays-section" class="config-section">
@@ -3606,8 +3919,8 @@
                 `;
             }
             
-            // Storage Classes (from cluster-context)
-            html += renderStorageClassesSection();
+            // Storage Classes (from cluster-context) - use filtered storage classes
+            html += renderStorageClassesSection(filteredStorageClasses);
 
             // Volumes & LUNs Table
             if (volumeCount > 0) {
@@ -3692,13 +4005,68 @@
                 `;
             }
 
-            // Port Usage Summary
-            if (portCount > 0) {
+            // Port Usage Summary - build from storage classes (source of truth)
+            // portsInfo was already built above for the count, now enrich with log data
+            if (portsInfo.size > 0) {
+                filteredStorageClasses.forEach(sc => {
+                    const serial = sc.parameters && sc.parameters.serialNumber ? sc.parameters.serialNumber.trim() : null;
+                    if (!serial) return;
+                    
+                    // Collect ports from this storage class and create entries
+                    if (sc.parameters) {
+                        const portParams = [];
+                        if (sc.parameters.portID) {
+                            portParams.push(...sc.parameters.portID.split(',').map(p => p.trim()));
+                        }
+                        if (sc.parameters.primaryPortID) {
+                            portParams.push(...sc.parameters.primaryPortID.split(',').map(p => p.trim()));
+                        }
+                        if (sc.parameters.secondaryPortID) {
+                            portParams.push(...sc.parameters.secondaryPortID.split(',').map(p => p.trim()));
+                        }
+                        
+                        // Create port entries with composite keys (port:arraySerial)
+                        for (const portName of portParams) {
+                            if (!portName) continue;
+                            const portKey = `${portName}:${serial}`;
+                            
+                            if (!portsInfo.has(portKey)) {
+                                portsInfo.set(portKey, {
+                                    name: portName,
+                                    arraySerial: serial,
+                                    volumes: new Set(),
+                                    errors: 0,
+                                    warnings: 0
+                                });
+                            }
+                        }
+                    }
+                });
+            }
+            
+            // Enrich port entries with data from logs (volumes, errors, warnings)
+            for (const [portKey, portInfo] of portsInfo.entries()) {
+                // Find matching port in filteredPorts (from logs) to get volume and error data
+                const logPort = filteredPorts[portKey];
+                if (logPort) {
+                    // Merge volume data
+                    if (logPort.volumes && logPort.volumes instanceof Set) {
+                        for (const volId of logPort.volumes) {
+                            portInfo.volumes.add(volId);
+                        }
+                    }
+                    // Merge error/warning counts
+                    portInfo.errors += logPort.errors || 0;
+                    portInfo.warnings += logPort.warnings || 0;
+                }
+            }
+            
+            if (portsInfo.size > 0) {
                 html += `
                     <div id="ports-section" class="config-section">
                         <div class="config-section-header">
                             <span>🔌 Port Usage Summary</span>
-                            <span class="config-section-count">${portCount} ports</span>
+                            <span class="config-section-count">${portsInfo.size} ports</span>
                         </div>
                         <table class="config-table">
                             <thead>
@@ -3713,7 +4081,7 @@
                 `;
 
                 // Sort by array serial first, then port name (groups ports by array)
-                const sortedPorts = Object.values(filteredPorts).sort((a, b) => {
+                const sortedPorts = Array.from(portsInfo.values()).sort((a, b) => {
                     const arrayCompare = (a.arraySerial || '').localeCompare(b.arraySerial || '');
                     if (arrayCompare !== 0) return arrayCompare;
                     return a.name.localeCompare(b.name);
@@ -3751,11 +4119,13 @@
         }
         
         // Render Storage Classes section (extracted for reuse)
-        function renderStorageClassesSection() {
-            if (!state.config.storageClasses || state.config.storageClasses.length === 0) return '';
+        function renderStorageClassesSection(filteredStorageClasses = null) {
+            // Use provided filtered storage classes, or fall back to all if not provided
+            const storageClassesToRender = filteredStorageClasses || state.config.storageClasses || [];
+            if (storageClassesToRender.length === 0) return '';
             
-            const standardClasses = state.config.storageClasses.filter(sc => sc.type === 'standard');
-            const stretchedClasses = state.config.storageClasses.filter(sc => sc.type === 'stretched');
+            const standardClasses = storageClassesToRender.filter(sc => sc.type === 'standard');
+            const stretchedClasses = storageClassesToRender.filter(sc => sc.type === 'stretched');
             
             let html = '';
             
@@ -4014,7 +4384,23 @@
                     if (clusterPrefix) {
                         const filteredPods = data.pods.filter(pod => pod && typeof pod === 'string' && pod.startsWith(clusterPrefix));
                         if (filteredPods.length === 0) return null;
-                        return [category, { ...data, pods: filteredPods, count: filteredPods.length }];
+                        
+                        // Count should represent errors, not pod count
+                        // If all pods are in this cluster, use original count
+                        // Otherwise, estimate proportionally based on pod count ratio
+                        const allPodsInCluster = filteredPods.length === data.pods.length;
+                        let estimatedCount;
+                        if (allPodsInCluster) {
+                            // All pods match, use original count
+                            estimatedCount = data.count;
+                        } else {
+                            // Some pods filtered out - estimate proportionally
+                            // Use the ratio of filtered pods to total pods, but ensure it's at least the number of filtered pods
+                            const podRatio = filteredPods.length / Math.max(data.pods.length, 1);
+                            estimatedCount = Math.max(filteredPods.length, Math.floor(data.count * podRatio));
+                        }
+                        
+                        return [category, { ...data, pods: filteredPods, count: estimatedCount }];
                     }
                     
                     // Ensure count exists for non-cluster filtered data
@@ -4215,7 +4601,7 @@
                 
                 html += `
                     <tr class="${rowClass}">
-                        <td><strong>${podName}</strong></td>
+                        <td><strong>${displayPodName}</strong></td>
                         <td style="font-size: 11px; color: #6c757d; line-height: 1.6;">${containersList}</td>
                         <td style="font-size: 12px;">${podData.node || 'N/A'}</td>
                         <td style="font-size: 12px; color: var(--text-secondary);">${age}</td>
@@ -4323,13 +4709,28 @@
 
         // Render Node Health (filtered by current cluster)
         function renderNodeHealth() {
+            // Check if nodeHealth exists and is an object
+            if (!state.nodeHealth || typeof state.nodeHealth !== 'object') {
+                return '';
+            }
+            
             const clusterPrefix = state.currentCluster ? state.currentCluster + '/' : null;
             
             // Filter nodes to only include those with pods from current cluster
             const filteredNodes = Object.entries(state.nodeHealth)
                 .map(([nodeName, health]) => {
+                    // Validate health object
+                    if (!health || typeof health !== 'object') {
+                        return null;
+                    }
+                    
+                    // Ensure pods is an array
+                    if (!health.pods || !Array.isArray(health.pods)) {
+                        return null;
+                    }
+                    
                     if (clusterPrefix) {
-                        const filteredPods = health.pods.filter(pod => pod.startsWith(clusterPrefix));
+                        const filteredPods = health.pods.filter(pod => pod && typeof pod === 'string' && pod.startsWith(clusterPrefix));
                         if (filteredPods.length === 0) return null;
                         // Recalculate errors/warnings based on filtered pods
                         let filteredErrors = 0;
@@ -4345,8 +4746,20 @@
                     }
                     return [nodeName, health];
                 })
-                .filter(([_, health]) => health !== null)
-                .sort((a, b) => (b[1].errors + b[1].warnings) - (a[1].errors + a[1].warnings));
+                .filter((entry) => {
+                    if (!entry || !Array.isArray(entry) || entry.length < 2) {
+                        return false;
+                    }
+                    const health = entry[1];
+                    return health !== null && health !== undefined && typeof health === 'object';
+                })
+                .sort((a, b) => {
+                    const errorsA = (a[1] && a[1].errors) || 0;
+                    const warningsA = (a[1] && a[1].warnings) || 0;
+                    const errorsB = (b[1] && b[1].errors) || 0;
+                    const warningsB = (b[1] && b[1].warnings) || 0;
+                    return (errorsB + warningsB) - (errorsA + warningsA);
+                });
             
             if (filteredNodes.length === 0) {
                 return '';
@@ -4367,19 +4780,28 @@
             `;
             
             for (const [nodeName, health] of filteredNodes) {
-                let statusBadge = '<span class="status-badge status-ok">OK</span>';
-                if (health.errors > 0) {
-                    statusBadge = `<span class="error-badge">${health.errors} ERROR(S)</span>`;
-                } else if (health.warnings > 0) {
-                    statusBadge = `<span class="warning-badge">${health.warnings} WARNING(S)</span>`;
+                // Validate health object
+                if (!health || typeof health !== 'object') {
+                    continue;
                 }
                 
-                const rowClass = health.errors > 0 ? 'error-row' : (health.warnings > 0 ? 'warning-row' : '');
+                let statusBadge = '<span class="status-badge status-ok">OK</span>';
+                const errors = health.errors || 0;
+                const warnings = health.warnings || 0;
+                
+                if (errors > 0) {
+                    statusBadge = `<span class="error-badge">${errors} ERROR(S)</span>`;
+                } else if (warnings > 0) {
+                    statusBadge = `<span class="warning-badge">${warnings} WARNING(S)</span>`;
+                }
+                
+                const rowClass = errors > 0 ? 'error-row' : (warnings > 0 ? 'warning-row' : '');
                 
                 // Remove cluster prefix from pod names for display
+                const pods = (health.pods && Array.isArray(health.pods)) ? health.pods : [];
                 const displayPods = clusterPrefix 
-                    ? health.pods.map(pod => pod.startsWith(clusterPrefix) ? pod.substring(clusterPrefix.length) : pod)
-                    : health.pods;
+                    ? pods.map(pod => pod && typeof pod === 'string' && pod.startsWith(clusterPrefix) ? pod.substring(clusterPrefix.length) : pod)
+                    : pods;
                 
                 html += `
                     <tr class="${rowClass}">
@@ -4752,7 +5174,7 @@
                     
                     // Lazy parse cluster context details when tabs are first viewed
                     if (tabName === 'health') {
-                        parsePodMetadata();
+                        parsePodMetadata(state.currentCluster);
                         renderHealthAndDiagnostics();
                     } else if (tabName === 'config') {
                         lazyParseStorageClasses();
@@ -4873,7 +5295,14 @@
             document.getElementById('copyBtn').addEventListener('click', () => {
                 // Get filtered logs directly (not just visible DOM)
                 const filtered = getFilteredLogs();
-                const text = filtered.map(log => `[${log.source}] ${log.raw}`).join('\n');
+                // Strip cluster prefix from source for export (views are now separated by cluster)
+                const text = filtered.map(log => {
+                    let displaySource = log.source;
+                    if (state.currentCluster && log.source.startsWith(state.currentCluster + '/')) {
+                        displaySource = log.source.substring(state.currentCluster.length + 1);
+                    }
+                    return `[${displaySource}] ${log.raw}`;
+                }).join('\n');
                 
                 navigator.clipboard.writeText(text).then(() => {
                     alert('Logs copied to clipboard!');
@@ -4885,7 +5314,14 @@
             document.getElementById('exportBtn').addEventListener('click', () => {
                 // Get filtered logs directly (not just visible DOM)
                 const filtered = getFilteredLogs();
-                const text = filtered.map(log => `[${log.source}] ${log.raw}`).join('\n');
+                // Strip cluster prefix from source for export (views are now separated by cluster)
+                const text = filtered.map(log => {
+                    let displaySource = log.source;
+                    if (state.currentCluster && log.source.startsWith(state.currentCluster + '/')) {
+                        displaySource = log.source.substring(state.currentCluster.length + 1);
+                    }
+                    return `[${displaySource}] ${log.raw}`;
+                }).join('\n');
                 
                 const blob = new Blob([text], { type: 'text/plain' });
                 const url = URL.createObjectURL(blob);
@@ -5027,4 +5463,5 @@
     </script>
 </body>
 </html>
+
 
