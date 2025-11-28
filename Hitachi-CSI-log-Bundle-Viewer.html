@@ -647,6 +647,132 @@
             align-items: center;
         }
 
+        /* YAML Modal */
+        .yaml-modal {
+            display: none;
+            position: fixed;
+            z-index: 2000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            overflow: auto;
+        }
+
+        .yaml-modal.active {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .yaml-modal-content {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            width: 90%;
+            max-width: 900px;
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        }
+
+        .yaml-modal-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .yaml-modal-header h3 {
+            margin: 0;
+            color: var(--accent-blue);
+            font-size: 16px;
+        }
+
+        .yaml-modal-close {
+            background: none;
+            border: none;
+            color: var(--text-primary);
+            font-size: 24px;
+            cursor: pointer;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+
+        .yaml-modal-close:hover {
+            background: var(--bg-hover);
+        }
+
+        .yaml-modal-body {
+            padding: 4px 12px;
+            overflow: auto;
+            flex: 1;
+        }
+
+        .yaml-content {
+            background: var(--bg-tertiary);
+            padding: 15px;
+            border-radius: 4px;
+            white-space: pre;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 11px;
+            line-height: 1.6;
+            overflow-x: auto;
+            max-height: calc(90vh - 150px);
+        }
+
+        /* Storage Class Tooltip */
+        .storage-class-tooltip {
+            position: relative;
+            display: inline-block;
+            cursor: help;
+            text-decoration: underline;
+            text-decoration-style: dotted;
+            text-decoration-color: var(--accent-blue);
+            color: var(--accent-blue);
+        }
+
+        .storage-class-tooltip:hover {
+            color: var(--info-blue);
+        }
+
+        .storage-class-tooltip .tooltip-content {
+            display: none;
+            position: fixed;
+            z-index: 3000;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            padding: 0;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+            min-width: 320px;
+            max-width: 480px;
+            max-height: 70vh;
+            font-size: 11px;
+            line-height: 1.5;
+            white-space: normal;
+            opacity: 0;
+            transition: opacity 0.2s;
+            overflow-y: auto;
+            overflow-x: hidden;
+            pointer-events: auto;
+        }
+
+        .storage-class-tooltip .tooltip-content.show {
+            display: block;
+            opacity: 1;
+        }
+
         .copy-section-btn {
             padding: 4px 8px;
             font-size: 11px;
@@ -1173,6 +1299,7 @@
                     <div class="tab" data-tab="health">🏥 Health & Diagnostics</div>
                     <div class="tab" data-tab="config">📋 Configuration</div>
                     <div class="tab" data-tab="cluster">🔧 Cluster Info</div>
+                    <div class="tab" data-tab="drpolicies" id="drpoliciesTab" style="display: none;">🔄 DR Policies</div>
                 </div>
 
                 <!-- Logs Tab -->
@@ -1248,6 +1375,29 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- DR Policies Tab -->
+                <div class="tab-content" data-content="drpolicies">
+                    <div class="log-content" id="drpoliciesContent" style="overflow-y: auto;">
+                        <div class="empty-state">
+                            <div class="empty-state-icon">🔄</div>
+                            <p>No DR Policies data available</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- YAML Modal -->
+    <div id="yamlModal" class="yaml-modal">
+        <div class="yaml-modal-content">
+            <div class="yaml-modal-header">
+                <h3 id="yamlModalTitle">DRPolicy YAML</h3>
+                <button class="yaml-modal-close" onclick="closeYamlModal()">&times;</button>
+            </div>
+            <div class="yaml-modal-body">
+                <div class="yaml-content" id="yamlModalContent"></div>
             </div>
         </div>
     </div>
@@ -1464,6 +1614,7 @@
             setupWordWrap();
             setupVirtualScroll();
             initializeVersion();
+            setupYamlModal();
         }
 
         // Drop Zone Setup
@@ -1842,6 +1993,9 @@
                 } else {
                     state.currentCluster = null; // Single cluster or old format
                 }
+                
+                // Check for DRPolicies and show/hide tab accordingly
+                checkAndShowDRPoliciesTab();
                 
                 updateUI();
                 dropZone.classList.add('hidden');
@@ -3891,7 +4045,15 @@
                 );
 
                 for (const host of sortedHosts) {
-                    const pods = Array.from(host.nodes).join(', ');
+                    // Remove cluster prefix from pod names for display (consistent with other views)
+                    const clusterPrefix = state.currentCluster ? state.currentCluster + '/' : null;
+                    const displayPods = Array.from(host.nodes).map(pod => {
+                        if (clusterPrefix && pod && typeof pod === 'string' && pod.startsWith(clusterPrefix)) {
+                            return pod.substring(clusterPrefix.length);
+                        }
+                        return pod;
+                    });
+                    const pods = displayPods.join(', ');
                     const nodeName = host.nodeId || '-';
                     const rowClass = host.errors > 0 ? 'row-with-error' : (host.warnings > 0 ? 'row-with-warning' : '');
                     
@@ -4988,6 +5150,239 @@
             return sections;
         }
 
+        // Parse DRPolicies from cluster context
+        function parseDRPolicies(clusterName, content) {
+            if (!content) return [];
+            
+            const drPolicies = [];
+            const drPolicySectionMatch = content.match(/===\s+DRPolicies\s+===\n([\s\S]*?)(?:\n===|$)/);
+            
+            if (!drPolicySectionMatch) {
+                console.log('DRPolicies section not found in cluster context');
+                return [];
+            }
+            
+            const drPolicySection = drPolicySectionMatch[1];
+            
+            // Find all policy blocks - they start with "- apiVersion:" and contain "kind: DRPolicy"
+            // Split by lines and build blocks manually for better control
+            const policyBlocks = [];
+            const lines = drPolicySection.split('\n');
+            let currentBlock = null;
+            
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                
+                // Check if this line starts a new policy item (starts with "- apiVersion: hspc.hitachi.com")
+                if (line.match(/^-\s+apiVersion:\s+hspc\.hitachi\.com/)) {
+                    // Save previous block if it exists
+                    if (currentBlock && currentBlock.trim()) {
+                        policyBlocks.push(currentBlock);
+                    }
+                    // Start new block
+                    currentBlock = line;
+                } else if (currentBlock !== null) {
+                    // Check if we've hit the end of items (next policy, or List metadata, or empty line after items)
+                    if (line.match(/^kind:\s*List/) || line.match(/^metadata:\s*$/) || (line.trim() === '' && i < lines.length - 1 && lines[i + 1] && !lines[i + 1].match(/^\s/))) {
+                        // End of items, save current block and stop
+                        if (currentBlock && currentBlock.trim()) {
+                            policyBlocks.push(currentBlock);
+                        }
+                        currentBlock = null;
+                        break;
+                    } else {
+                        // Continue current block (add line if it's part of the policy)
+                        // Only add lines that are indented (part of the current policy) or are empty
+                        if (line.match(/^\s/) || line.trim() === '') {
+                            currentBlock += '\n' + line;
+                        } else {
+                            // Hit something unexpected, might be end of items
+                            if (currentBlock && currentBlock.trim()) {
+                                policyBlocks.push(currentBlock);
+                            }
+                            currentBlock = null;
+                        }
+                    }
+                }
+            }
+            
+            // Don't forget the last block
+            if (currentBlock && currentBlock.trim()) {
+                policyBlocks.push(currentBlock);
+            }
+            
+            // Filter to only blocks that contain "kind: DRPolicy"
+            const validBlocks = policyBlocks.filter(b => b.includes('kind: DRPolicy'));
+            
+            for (const block of validBlocks) {
+                try {
+                    const policy = {
+                        cluster: clusterName,
+                        name: '',
+                        namespace: '',
+                        creationTimestamp: '',
+                        uid: '',
+                        spec: {},
+                        status: {}
+                    };
+                    
+                    // Extract metadata - fields are indented 4 spaces under metadata:
+                    // Structure: - apiVersion: ... (0 spaces)
+                    //            kind: ... (2 spaces)
+                    //            metadata: (2 spaces)
+                    //              name: ... (4 spaces)
+                    const metadataMatch = block.match(/^\s{2}metadata:\s*\n((?:^\s{4,}.*\n?)+)/m);
+                    if (metadataMatch) {
+                        const metadataSection = metadataMatch[1];
+                        
+                        const nameMatch = metadataSection.match(/^\s{4}name:\s*(.+)$/m);
+                        if (nameMatch) {
+                            policy.name = nameMatch[1].trim();
+                        }
+                        
+                        const namespaceMatch = metadataSection.match(/^\s{4}namespace:\s*(.+)$/m);
+                        if (namespaceMatch) {
+                            policy.namespace = namespaceMatch[1].trim();
+                        }
+                        
+                        const creationTimestampMatch = metadataSection.match(/^\s{4}creationTimestamp:\s*"(.+)"$/m);
+                        if (creationTimestampMatch) {
+                            policy.creationTimestamp = creationTimestampMatch[1].trim();
+                        }
+                        
+                        const uidMatch = metadataSection.match(/^\s{4}uid:\s*(.+)$/m);
+                        if (uidMatch) {
+                            policy.uid = uidMatch[1].trim();
+                        }
+                    }
+                    
+                    // Extract spec - spec is at 2 spaces, fields are at 4 spaces
+                    const specMatch = block.match(/^\s{2}spec:\s*\n((?:^\s{4,}.*\n?)+)/m);
+                    if (specMatch) {
+                        const specSection = specMatch[1];
+                        
+                        // Extract simple key-value pairs (4 spaces)
+                        const consistencyRequiredMatch = specSection.match(/^\s{4}consistencyRequired:\s*(.+)$/m);
+                        if (consistencyRequiredMatch) {
+                            policy.spec.consistencyRequired = consistencyRequiredMatch[1].trim() === 'true';
+                        }
+                        
+                        const desiredStateMatch = specSection.match(/^\s{4}desiredState:\s*(.+)$/m);
+                        if (desiredStateMatch) {
+                            policy.spec.desiredState = desiredStateMatch[1].trim();
+                        }
+                        
+                        const replicationAttributeMatch = specSection.match(/^\s{4}replicationAttribute:\s*(.+)$/m);
+                        if (replicationAttributeMatch) {
+                            policy.spec.replicationAttribute = replicationAttributeMatch[1].trim();
+                        }
+                        
+                        const replicationModeMatch = specSection.match(/^\s{4}replicationMode:\s*(.+)$/m);
+                        if (replicationModeMatch) {
+                            policy.spec.replicationMode = replicationModeMatch[1].trim();
+                        }
+                        
+                        const primaryJournalIdMatch = specSection.match(/^\s{4}primaryJournalId:\s*(.+)$/m);
+                        if (primaryJournalIdMatch) {
+                            policy.spec.primaryJournalId = parseInt(primaryJournalIdMatch[1].trim(), 10);
+                        }
+                        
+                        const secondaryJournalIdMatch = specSection.match(/^\s{4}secondaryJournalId:\s*(.+)$/m);
+                        if (secondaryJournalIdMatch) {
+                            policy.spec.secondaryJournalId = parseInt(secondaryJournalIdMatch[1].trim(), 10);
+                        }
+                        
+                        // Extract drSource (4 spaces for drSource:, 6 spaces for clusterName:)
+                        const drSourceMatch = specSection.match(/^\s{4}drSource:\s*\n((?:^\s{6,}.*\n?)+)/m);
+                        if (drSourceMatch) {
+                            policy.spec.drSource = {};
+                            const clusterNameMatch = drSourceMatch[1].match(/^\s{6}clusterName:\s*(.+)$/m);
+                            if (clusterNameMatch) {
+                                policy.spec.drSource.clusterName = clusterNameMatch[1].trim();
+                            }
+                        }
+                        
+                        // Extract drTarget (4 spaces for drTarget:, 6 spaces for clusterName:)
+                        const drTargetMatch = specSection.match(/^\s{4}drTarget:\s*\n((?:^\s{6,}.*\n?)+)/m);
+                        if (drTargetMatch) {
+                            policy.spec.drTarget = {};
+                            const clusterNameMatch = drTargetMatch[1].match(/^\s{6}clusterName:\s*(.+)$/m);
+                            if (clusterNameMatch) {
+                                policy.spec.drTarget.clusterName = clusterNameMatch[1].trim();
+                            }
+                        }
+                        
+                        // Extract pvcSelector.matchWorkloadLabels
+                        // pvcSelector: (4 spaces)
+                        //   matchWorkloadLabels: (6 spaces)
+                        //     - app: vpg-1 (8 spaces)
+                        const pvcSelectorMatch = specSection.match(/^\s{4}pvcSelector:\s*\n((?:^\s{6,}.*\n?)+)/m);
+                        if (pvcSelectorMatch) {
+                            policy.spec.pvcSelector = {};
+                            const matchWorkloadLabelsMatch = pvcSelectorMatch[1].match(/^\s{6}matchWorkloadLabels:\s*\n((?:^\s{8,}.*\n?)+)/m);
+                            if (matchWorkloadLabelsMatch) {
+                                policy.spec.pvcSelector.matchWorkloadLabels = [];
+                                const labelLines = matchWorkloadLabelsMatch[1].split('\n').filter(l => l.trim());
+                                for (const labelLine of labelLines) {
+                                    // Format: "      - app: vpg-1" (8 spaces)
+                                    const labelMatch = labelLine.match(/^\s{8}-\s+(.+)$/);
+                                    if (labelMatch) {
+                                        policy.spec.pvcSelector.matchWorkloadLabels.push(labelMatch[1].trim());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Extract status - status is at 2 spaces, fields are at 4 spaces
+                    const statusMatch = block.match(/^\s{2}status:\s*\n((?:^\s{4,}.*\n?)+)/m);
+                    if (statusMatch) {
+                        const statusSection = statusMatch[1];
+                        
+                        const statusValueMatch = statusSection.match(/^\s{4}status:\s*(.+)$/m);
+                        if (statusValueMatch) {
+                            policy.status.status = statusValueMatch[1].trim();
+                        }
+                        
+                        // Extract selectedPVCs
+                        const selectedPVCsMatch = statusSection.match(/^\s{4}selectedPVCs:\s*\n((?:^\s{6,}.*\n?)+)/m);
+                        if (selectedPVCsMatch) {
+                            policy.status.selectedPVCs = [];
+                            const pvcLines = selectedPVCsMatch[1].split('\n');
+                            let currentPVC = null;
+                            
+                            for (const pvcLine of pvcLines) {
+                                const pvcNameMatch = pvcLine.match(/^\s{6}-\s+name:\s*(.+)$/);
+                                const pvcNamespaceMatch = pvcLine.match(/^\s{8}namespace:\s*(.+)$/);
+                                
+                                if (pvcNameMatch) {
+                                    if (currentPVC) {
+                                        policy.status.selectedPVCs.push(currentPVC);
+                                    }
+                                    currentPVC = { name: pvcNameMatch[1].trim() };
+                                } else if (pvcNamespaceMatch && currentPVC) {
+                                    currentPVC.namespace = pvcNamespaceMatch[1].trim();
+                                }
+                            }
+                            
+                            if (currentPVC) {
+                                policy.status.selectedPVCs.push(currentPVC);
+                            }
+                        }
+                    }
+                    
+                    // Only add if we got a name
+                    if (policy.name) {
+                        drPolicies.push(policy);
+                    }
+                } catch (e) {
+                    console.error('Error parsing DRPolicy block:', e);
+                }
+            }
+            
+            return drPolicies;
+        }
+
         // Toggle Section
         window.toggleSection = function(index) {
             const content = document.getElementById(`content-${index}`);
@@ -5160,6 +5555,1243 @@
             hideLoading();
         };
 
+        // Check for DRPolicies and conditionally show the tab
+        function checkAndShowDRPoliciesTab() {
+            const drPoliciesTab = document.getElementById('drpoliciesTab');
+            if (!drPoliciesTab) return;
+            
+            let hasDRPolicies = false;
+            
+            if (typeof state.clusterContext === 'object' && state.clusterContext !== null) {
+                // Multi-cluster format
+                for (const clusterName of Object.keys(state.clusterContext)) {
+                    const clusterContent = state.clusterContext[clusterName];
+                    if (clusterContent && clusterContent.includes('=== DRPolicies ===')) {
+                        // Check if there are actual policies (not just "No DRPolicies found")
+                        const drPolicySectionMatch = clusterContent.match(/===\s+DRPolicies\s+===\n([\s\S]*?)(?:\n===|$)/);
+                        if (drPolicySectionMatch) {
+                            const drPolicySection = drPolicySectionMatch[1];
+                            // Check if it contains actual policy data (kind: DRPolicy)
+                            if (drPolicySection.includes('kind: DRPolicy') && !drPolicySection.includes('No DRPolicies found')) {
+                                hasDRPolicies = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            } else if (typeof state.clusterContext === 'string') {
+                // Single cluster format
+                if (state.clusterContext.includes('=== DRPolicies ===')) {
+                    const drPolicySectionMatch = state.clusterContext.match(/===\s+DRPolicies\s+===\n([\s\S]*?)(?:\n===|$)/);
+                    if (drPolicySectionMatch) {
+                        const drPolicySection = drPolicySectionMatch[1];
+                        if (drPolicySection.includes('kind: DRPolicy') && !drPolicySection.includes('No DRPolicies found')) {
+                            hasDRPolicies = true;
+                        }
+                    }
+                }
+            }
+            
+            // Show or hide the tab
+            drPoliciesTab.style.display = hasDRPolicies ? 'block' : 'none';
+        }
+
+        // Parse Replications from cluster context
+        function parseReplications(clusterName, content) {
+            if (!content) return [];
+            
+            const replications = [];
+            const replicationSectionMatch = content.match(/===\s+Replications\s+===\n([\s\S]*?)(?:\n===|$)/);
+            
+            if (!replicationSectionMatch) {
+                return [];
+            }
+            
+            const replicationSection = replicationSectionMatch[1];
+            const lines = replicationSection.split('\n');
+            let currentBlock = null;
+            
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                
+                // Check if this line starts a new replication item
+                if (line.match(/^-\s+apiVersion:\s+hspc\.hitachi\.com/)) {
+                    // Save previous block if it exists
+                    if (currentBlock && currentBlock.trim()) {
+                        replications.push(currentBlock);
+                    }
+                    // Start new block
+                    currentBlock = line;
+                } else if (currentBlock !== null) {
+                    // Check if we've hit the end of items
+                    if (line.match(/^kind:\s*List/) || line.match(/^metadata:\s*$/) || 
+                        (line.trim() === '' && i < lines.length - 1 && lines[i + 1] && !lines[i + 1].match(/^\s/))) {
+                        // End of items, save current block and stop
+                        if (currentBlock && currentBlock.trim()) {
+                            replications.push(currentBlock);
+                        }
+                        currentBlock = null;
+                        break;
+                    } else {
+                        // Continue current block
+                        if (line.match(/^\s/) || line.trim() === '') {
+                            currentBlock += '\n' + line;
+                        } else {
+                            // Hit something unexpected
+                            if (currentBlock && currentBlock.trim()) {
+                                replications.push(currentBlock);
+                            }
+                            currentBlock = null;
+                        }
+                    }
+                }
+            }
+            
+            // Don't forget the last block
+            if (currentBlock && currentBlock.trim()) {
+                replications.push(currentBlock);
+            }
+            
+            // Filter to only blocks that contain "kind: Replication"
+            return replications.filter(b => b.includes('kind: Replication'));
+        }
+
+        // Parse a single Replication block into structured data
+        function parseReplicationBlock(block) {
+            const replication = {
+                name: '',
+                namespace: '',
+                creationTimestamp: '',
+                uid: '',
+                spec: {},
+                status: {}
+            };
+            
+            // Extract metadata
+            const metadataMatch = block.match(/^\s{2}metadata:\s*\n((?:^\s{4,}.*\n?)+)/m);
+            if (metadataMatch) {
+                const metadataSection = metadataMatch[1];
+                
+                const nameMatch = metadataSection.match(/^\s{4}name:\s*(.+)$/m);
+                if (nameMatch) replication.name = nameMatch[1].trim();
+                
+                const namespaceMatch = metadataSection.match(/^\s{4}namespace:\s*(.+)$/m);
+                if (namespaceMatch) replication.namespace = namespaceMatch[1].trim();
+                
+                const creationTimestampMatch = metadataSection.match(/^\s{4}creationTimestamp:\s*"(.+)"$/m);
+                if (creationTimestampMatch) replication.creationTimestamp = creationTimestampMatch[1].trim();
+                
+                const uidMatch = metadataSection.match(/^\s{4}uid:\s*(.+)$/m);
+                if (uidMatch) replication.uid = uidMatch[1].trim();
+            }
+            
+            // Extract spec
+            const specMatch = block.match(/^\s{2}spec:\s*\n((?:^\s{4,}.*\n?)+)/m);
+            if (specMatch) {
+                const specSection = specMatch[1];
+                
+                const desiredPairStateMatch = specSection.match(/^\s{4}desiredPairState:\s*(.+)$/m);
+                if (desiredPairStateMatch) replication.spec.desiredPairState = desiredPairStateMatch[1].trim();
+                
+                const pvcNameMatch = specSection.match(/^\s{4}persistentVolumeClaimName:\s*(.+)$/m);
+                if (pvcNameMatch) replication.spec.persistentVolumeClaimName = pvcNameMatch[1].trim();
+                
+                const replicationAttributeMatch = specSection.match(/^\s{4}replicationAttribute:\s*(.+)$/m);
+                if (replicationAttributeMatch) replication.spec.replicationAttribute = replicationAttributeMatch[1].trim();
+                
+                const storageClassNameMatch = specSection.match(/^\s{4}storageClassName:\s*(.+)$/m);
+                if (storageClassNameMatch) replication.spec.storageClassName = storageClassNameMatch[1].trim();
+            }
+            
+            // Extract status
+            const statusMatch = block.match(/^\s{2}status:\s*\n((?:^\s{4,}.*\n?)+)/m);
+            if (statusMatch) {
+                const statusSection = statusMatch[1];
+                
+                const statusValueMatch = statusSection.match(/^\s{4}status:\s*(.+)$/m);
+                if (statusValueMatch) replication.status.status = statusValueMatch[1].trim();
+                
+                // Extract currentOperation
+                const currentOpMatch = statusSection.match(/^\s{4}currentOperation:\s*\n((?:^\s{6,}.*\n?)+)/m);
+                if (currentOpMatch) {
+                    replication.status.currentOperation = {};
+                    const opSection = currentOpMatch[1];
+                    const operationMatch = opSection.match(/^\s{6}operation:\s*(.+)$/m);
+                    const runningMatch = opSection.match(/^\s{6}running:\s*(.+)$/m);
+                    if (operationMatch) replication.status.currentOperation.operation = operationMatch[1].trim();
+                    if (runningMatch) replication.status.currentOperation.running = runningMatch[1].trim() === 'true';
+                }
+                
+                // Extract replicationPair
+                const replicationPairMatch = statusSection.match(/^\s{4}replicationPair:\s*\n((?:^\s{6,}.*\n?)+)/m);
+                if (replicationPairMatch) {
+                    replication.status.replicationPair = {};
+                    const pairSection = replicationPairMatch[1];
+                    
+                    const localSerialMatch = pairSection.match(/^\s{6}localSerialNumber:\s*(.+)$/m);
+                    const localStorageDeviceMatch = pairSection.match(/^\s{6}localStorageDeviceId:\s*"(.+)"$/m);
+                    const primaryVolumeIdMatch = pairSection.match(/^\s{6}primaryVolumeId:\s*(.+)$/m);
+                    const primaryVolumeNicknameMatch = pairSection.match(/^\s{6}primaryVolumeNickname:\s*(.+)$/m);
+                    const remoteSerialMatch = pairSection.match(/^\s{6}remoteSerialNumber:\s*(.+)$/m);
+                    const remoteStorageDeviceMatch = pairSection.match(/^\s{6}remoteStorageDeviceId:\s*"(.+)"$/m);
+                    const secondaryVolumeIdMatch = pairSection.match(/^\s{6}secondaryVolumeId:\s*(.+)$/m);
+                    const secondaryVolumeNicknameMatch = pairSection.match(/^\s{6}secondaryVolumeNickname:\s*(.+)$/m);
+                    
+                    if (localSerialMatch) replication.status.replicationPair.localSerialNumber = parseInt(localSerialMatch[1].trim(), 10) || 0;
+                    if (localStorageDeviceMatch) replication.status.replicationPair.localStorageDeviceId = localStorageDeviceMatch[1].trim();
+                    if (primaryVolumeIdMatch) replication.status.replicationPair.primaryVolumeId = parseInt(primaryVolumeIdMatch[1].trim(), 10) || 0;
+                    if (primaryVolumeNicknameMatch) replication.status.replicationPair.primaryVolumeNickname = primaryVolumeNicknameMatch[1].trim();
+                    if (remoteSerialMatch) replication.status.replicationPair.remoteSerialNumber = parseInt(remoteSerialMatch[1].trim(), 10) || 0;
+                    if (remoteStorageDeviceMatch) replication.status.replicationPair.remoteStorageDeviceId = remoteStorageDeviceMatch[1].trim();
+                    if (secondaryVolumeIdMatch) replication.status.replicationPair.secondaryVolumeId = parseInt(secondaryVolumeIdMatch[1].trim(), 10) || 0;
+                    if (secondaryVolumeNicknameMatch) replication.status.replicationPair.secondaryVolumeNickname = secondaryVolumeNicknameMatch[1].trim();
+                }
+            }
+            
+            return replication;
+        }
+
+        // Compare two replication objects and return diff info
+        function compareReplications(primary, secondary) {
+            const diffs = {};
+            
+            // Compare spec fields
+            if (primary.spec.desiredPairState !== secondary.spec.desiredPairState) {
+                diffs['spec.desiredPairState'] = { primary: primary.spec.desiredPairState, secondary: secondary.spec.desiredPairState };
+            }
+            if (primary.spec.persistentVolumeClaimName !== secondary.spec.persistentVolumeClaimName) {
+                diffs['spec.persistentVolumeClaimName'] = { primary: primary.spec.persistentVolumeClaimName, secondary: secondary.spec.persistentVolumeClaimName };
+            }
+            if (primary.spec.replicationAttribute !== secondary.spec.replicationAttribute) {
+                diffs['spec.replicationAttribute'] = { primary: primary.spec.replicationAttribute, secondary: secondary.spec.replicationAttribute };
+            }
+            if (primary.spec.storageClassName !== secondary.spec.storageClassName) {
+                diffs['spec.storageClassName'] = { primary: primary.spec.storageClassName, secondary: secondary.spec.storageClassName };
+            }
+            
+            // Compare status
+            if (primary.status && secondary.status) {
+                if (primary.status.status !== secondary.status.status) {
+                    diffs['status.status'] = { primary: primary.status.status, secondary: secondary.status.status };
+                }
+                
+                // Compare currentOperation
+                if (primary.status.currentOperation && secondary.status.currentOperation) {
+                    if (primary.status.currentOperation.operation !== secondary.status.currentOperation.operation) {
+                        diffs['status.currentOperation.operation'] = { primary: primary.status.currentOperation.operation, secondary: secondary.status.currentOperation.operation };
+                    }
+                    if (primary.status.currentOperation.running !== secondary.status.currentOperation.running) {
+                        diffs['status.currentOperation.running'] = { primary: primary.status.currentOperation.running, secondary: secondary.status.currentOperation.running };
+                    }
+                }
+                
+                // Compare replicationPair
+                if (primary.status.replicationPair && secondary.status.replicationPair) {
+                    const pair1 = primary.status.replicationPair;
+                    const pair2 = secondary.status.replicationPair;
+                    const pairFields = ['localSerialNumber', 'localStorageDeviceId', 'primaryVolumeId', 'primaryVolumeNickname', 
+                                       'remoteSerialNumber', 'remoteStorageDeviceId', 'secondaryVolumeId', 'secondaryVolumeNickname'];
+                    pairFields.forEach(field => {
+                        if (pair1[field] !== pair2[field]) {
+                            diffs[`status.replicationPair.${field}`] = { primary: pair1[field], secondary: pair2[field] };
+                        }
+                    });
+                }
+            }
+            
+            return diffs;
+        }
+
+        // Render Replication details in formatted view with diff highlighting
+        function renderReplicationDetails(replication, isCompact, diffFields = null, isPrimary = true, clusterName = null) {
+            const formatValue = (value, showEmpty = false) => {
+                if (value === null || value === undefined) {
+                    return showEmpty ? '<span style="color: var(--text-secondary);">(empty)</span>' : '<span style="color: var(--text-secondary);">-</span>';
+                }
+                if (typeof value === 'string' && value === '') {
+                    return showEmpty ? '<span style="color: var(--text-secondary);">""</span>' : '<span style="color: var(--text-secondary);">-</span>';
+                }
+                if (typeof value === 'number' && value === 0 && showEmpty) {
+                    return '<span style="color: var(--text-secondary);">0</span>';
+                }
+                if (typeof value === 'object') {
+                    if (Array.isArray(value)) {
+                        return value.length > 0 ? value.join(', ') : '<span style="color: var(--text-secondary);">-</span>';
+                    }
+                    return JSON.stringify(value, null, 2);
+                }
+                return String(value);
+            };
+            
+            const highlightDiff = (field, value) => {
+                if (diffFields && diffFields[field]) {
+                    const bgColor = 'rgba(255, 193, 7, 0.3)';
+                    return `<span style="background: ${bgColor}; padding: 1px 3px; border-radius: 2px; border: 1px solid rgba(255, 193, 7, 0.5);">${value}</span>`;
+                }
+                return value;
+            };
+            
+            let html = '<div style="font-size: 12px; margin: 0; padding: 0; line-height: 1.4;">';
+            
+            // Metadata
+            html += `<div style="margin-top: 0; margin-bottom: ${isCompact ? '8px' : '12px'};"><strong style="color: var(--text-secondary);">Namespace:</strong> ${formatValue(replication.namespace)}</div>`;
+            
+            // Spec
+            html += `<div style="margin-bottom: ${isCompact ? '8px' : '12px'};"><strong style="color: var(--accent-green);">Spec:</strong></div>`;
+            html += '<div style="margin-left: 15px; margin-bottom: 10px;">';
+            
+            html += `<div style="margin-bottom: 4px;"><strong>Desired Pair State:</strong> <span style="color: var(--accent-green);">${highlightDiff('spec.desiredPairState', formatValue(replication.spec.desiredPairState))}</span></div>`;
+            html += `<div style="margin-bottom: 4px;"><strong>PVC Name:</strong> ${highlightDiff('spec.persistentVolumeClaimName', formatValue(replication.spec.persistentVolumeClaimName))}</div>`;
+            html += `<div style="margin-bottom: 4px;"><strong>Replication Attribute:</strong> <span style="color: var(--info-blue);">${highlightDiff('spec.replicationAttribute', formatValue(replication.spec.replicationAttribute))}</span></div>`;
+            
+            // Storage Class with tooltip
+            const storageClassName = replication.spec.storageClassName;
+            const scValue = formatValue(storageClassName);
+            const scDetails = clusterName && storageClassName ? getStorageClassDetails(clusterName, storageClassName) : null;
+            
+            if (scDetails) {
+                const tooltipId = `sc-tooltip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                html += `<div style="margin-bottom: 4px;"><strong>Storage Class:</strong> <span class="storage-class-tooltip" onmouseenter="showStorageClassTooltip(event, '${tooltipId}')" onmouseleave="scheduleHideStorageClassTooltip('${tooltipId}')">${highlightDiff('spec.storageClassName', scValue)}<span class="tooltip-content" id="${tooltipId}" onmouseenter="cancelHideStorageClassTooltip('${tooltipId}')" onmouseleave="hideStorageClassTooltip('${tooltipId}')">${renderStorageClassTooltip(scDetails)}</span></span></div>`;
+            } else {
+                html += `<div style="margin-bottom: 4px;"><strong>Storage Class:</strong> ${highlightDiff('spec.storageClassName', scValue)}</div>`;
+            }
+            
+            html += '</div>';
+            
+            // Status - always show all fields
+            html += `<div style="margin-bottom: ${isCompact ? '8px' : '12px'};"><strong style="color: var(--warning-yellow);">Status:</strong></div>`;
+            html += '<div style="margin-left: 15px; margin-bottom: 0;">';
+            
+            if (replication.status && replication.status.status !== undefined) {
+                const statusColor = replication.status.status === 'Ready' ? 'var(--success-green)' : 
+                                   replication.status.status === 'Pending' ? 'var(--warning-yellow)' : 
+                                   'var(--error-red)';
+                const statusValue = highlightDiff('status.status', formatValue(replication.status.status));
+                html += `<div style="margin-bottom: 4px;"><strong>Status:</strong> <span style="color: ${statusColor};">${statusValue}</span></div>`;
+            }
+            
+            // Current Operation - always show
+            html += `<div style="margin-bottom: 4px;"><strong>Current Operation:</strong></div>`;
+            html += '<div style="margin-left: 15px; margin-bottom: 4px;">';
+            if (replication.status && replication.status.currentOperation) {
+                const op = replication.status.currentOperation.operation !== undefined ? formatValue(replication.status.currentOperation.operation, true) : '<span style="color: var(--text-secondary);">none</span>';
+                const running = replication.status.currentOperation.running !== undefined ? 
+                    (replication.status.currentOperation.running ? '<span style="color: var(--success-green);">true</span>' : '<span style="color: var(--text-secondary);">false</span>') : 
+                    '<span style="color: var(--text-secondary);">-</span>';
+                html += `<div style="margin-bottom: 2px; font-size: 11px;"><strong>Operation:</strong> ${highlightDiff('status.currentOperation.operation', op)}</div>`;
+                html += `<div style="margin-bottom: 2px; font-size: 11px;"><strong>Running:</strong> ${highlightDiff('status.currentOperation.running', running)}</div>`;
+            } else {
+                html += `<div style="margin-bottom: 2px; font-size: 11px;"><strong>Operation:</strong> <span style="color: var(--text-secondary);">-</span></div>`;
+                html += `<div style="margin-bottom: 2px; font-size: 11px;"><strong>Running:</strong> <span style="color: var(--text-secondary);">-</span></div>`;
+            }
+            html += '</div>';
+            
+            // Replication Pair - always show all fields
+            html += `<div style="margin-bottom: 4px;"><strong>Replication Pair:</strong></div>`;
+            html += '<div style="margin-left: 15px; font-size: 11px;">';
+            if (replication.status && replication.status.replicationPair) {
+                const pair = replication.status.replicationPair;
+                html += `<div style="margin-bottom: 2px;"><strong>Local Serial Number:</strong> ${highlightDiff('status.replicationPair.localSerialNumber', formatValue(pair.localSerialNumber, true))}</div>`;
+                html += `<div style="margin-bottom: 2px;"><strong>Local Storage Device ID:</strong> ${highlightDiff('status.replicationPair.localStorageDeviceId', formatValue(pair.localStorageDeviceId, true))}</div>`;
+                html += `<div style="margin-bottom: 2px;"><strong>Primary Volume ID:</strong> ${highlightDiff('status.replicationPair.primaryVolumeId', formatValue(pair.primaryVolumeId, true))}</div>`;
+                html += `<div style="margin-bottom: 2px;"><strong>Primary Volume Nickname:</strong> ${highlightDiff('status.replicationPair.primaryVolumeNickname', formatValue(pair.primaryVolumeNickname, true))}</div>`;
+                html += `<div style="margin-bottom: 2px;"><strong>Remote Serial Number:</strong> ${highlightDiff('status.replicationPair.remoteSerialNumber', formatValue(pair.remoteSerialNumber, true))}</div>`;
+                html += `<div style="margin-bottom: 2px;"><strong>Remote Storage Device ID:</strong> ${highlightDiff('status.replicationPair.remoteStorageDeviceId', formatValue(pair.remoteStorageDeviceId, true))}</div>`;
+                html += `<div style="margin-bottom: 2px;"><strong>Secondary Volume ID:</strong> ${highlightDiff('status.replicationPair.secondaryVolumeId', formatValue(pair.secondaryVolumeId, true))}</div>`;
+                html += `<div style="margin-bottom: 0;"><strong>Secondary Volume Nickname:</strong> ${highlightDiff('status.replicationPair.secondaryVolumeNickname', formatValue(pair.secondaryVolumeNickname, true))}</div>`;
+            } else {
+                html += `<div style="margin-bottom: 2px; color: var(--text-secondary);">No replication pair data</div>`;
+            }
+            html += '</div>';
+            
+            html += '</div>';
+            html += '</div>';
+            return html;
+        }
+
+        // Get Storage Class details by name from cluster context
+        function getStorageClassDetails(clusterName, storageClassName) {
+            let clusterContent = null;
+            
+            if (typeof state.clusterContext === 'object' && state.clusterContext !== null) {
+                clusterContent = state.clusterContext[clusterName];
+            } else if (typeof state.clusterContext === 'string') {
+                clusterContent = state.clusterContext;
+            }
+            
+            if (!clusterContent || !storageClassName) return null;
+            
+            // Find the StorageClasses section
+            const scSectionMatch = clusterContent.match(/===\s+HSPC StorageClasses\s+===\n([\s\S]*?)(?:\n===|$)/);
+            if (!scSectionMatch) return null;
+            
+            const scSection = scSectionMatch[1];
+            const scBlocks = scSection.split(/(?=^allowVolumeExpansion:)/m).filter(b => b.trim() && b.includes('kind: StorageClass'));
+            
+            for (const block of scBlocks) {
+                const nameMatch = block.match(/^\s*name:\s*(.+)$/m);
+                if (nameMatch && nameMatch[1].trim() === storageClassName) {
+                    // Parse the storage class details
+                    const sc = {
+                        name: storageClassName,
+                        provisioner: null,
+                        reclaimPolicy: null,
+                        volumeBindingMode: null,
+                        allowVolumeExpansion: false,
+                        parameters: {},
+                        creationTimestamp: null
+                    };
+                    
+                    const provisionerMatch = block.match(/^provisioner:\s*(.+)$/m);
+                    if (provisionerMatch) sc.provisioner = provisionerMatch[1].trim();
+                    
+                    const reclaimMatch = block.match(/^reclaimPolicy:\s*(.+)$/m);
+                    if (reclaimMatch) sc.reclaimPolicy = reclaimMatch[1].trim();
+                    
+                    const bindingMatch = block.match(/^volumeBindingMode:\s*(.+)$/m);
+                    if (bindingMatch) sc.volumeBindingMode = bindingMatch[1].trim();
+                    
+                    const expansionMatch = block.match(/^allowVolumeExpansion:\s*(.+)$/m);
+                    if (expansionMatch) sc.allowVolumeExpansion = expansionMatch[1].trim() === 'true';
+                    
+                    const timestampMatch = block.match(/creationTimestamp:\s*"([^"]+)"/);
+                    if (timestampMatch) sc.creationTimestamp = timestampMatch[1].trim();
+                    
+                    // Parse parameters
+                    const paramsMatch = block.match(/^parameters:\s*\n((?:^\s{2}\S.*\n?)+)/m);
+                    if (paramsMatch) {
+                        const paramsSection = paramsMatch[1];
+                        const paramLines = paramsSection.split('\n').filter(l => l.trim());
+                        
+                        for (const line of paramLines) {
+                            const paramMatch = line.match(/^\s{2}(\S+):\s*(.+)$/);
+                            if (paramMatch) {
+                                const key = paramMatch[1].trim();
+                                const value = paramMatch[2].trim().replace(/^"|"$/g, '');
+                                sc.parameters[key] = value;
+                            }
+                        }
+                    }
+                    
+                    return sc;
+                }
+            }
+            
+            return null;
+        }
+
+        // Storage class tooltip hide timeout
+        const storageClassTooltipTimeouts = {};
+
+        // Show storage class tooltip
+        window.showStorageClassTooltip = function(event, tooltipId) {
+            // Cancel any pending hide
+            cancelHideStorageClassTooltip(tooltipId);
+            
+            const tooltip = document.getElementById(tooltipId);
+            if (!tooltip) return;
+            
+            // First show it (but invisible) to get dimensions
+            tooltip.style.display = 'block';
+            tooltip.style.opacity = '0';
+            
+            const rect = event.target.getBoundingClientRect();
+            const tooltipRect = tooltip.getBoundingClientRect();
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+            
+            let left = rect.left + (rect.width / 2) - (tooltipRect.width / 2);
+            let top = rect.top - tooltipRect.height - 8;
+            
+            // Adjust if tooltip would go off screen
+            if (left < 10) {
+                left = 10;
+            } else if (left + tooltipRect.width > viewportWidth - 10) {
+                left = viewportWidth - tooltipRect.width - 10;
+            }
+            
+            // If tooltip would go above viewport, show below instead
+            if (top < 10) {
+                top = rect.bottom + 8;
+            }
+            
+            // Ensure tooltip doesn't go off bottom of screen
+            if (top + tooltipRect.height > viewportHeight - 10) {
+                // Try to fit it above the element
+                const spaceAbove = rect.top - 10;
+                if (spaceAbove >= tooltipRect.height) {
+                    top = rect.top - tooltipRect.height - 8;
+                } else {
+                    // Position it so bottom edge is at viewport bottom
+                    top = viewportHeight - tooltipRect.height - 10;
+                    // If still doesn't fit, try to the side
+                    if (top < 10) {
+                        if (rect.right + tooltipRect.width + 8 < viewportWidth) {
+                            left = rect.right + 8;
+                            top = Math.max(10, Math.min(rect.top, viewportHeight - tooltipRect.height - 10));
+                        } else if (rect.left - tooltipRect.width - 8 > 0) {
+                            left = rect.left - tooltipRect.width - 8;
+                            top = Math.max(10, Math.min(rect.top, viewportHeight - tooltipRect.height - 10));
+                        } else {
+                            // Center it vertically within viewport
+                            top = Math.max(10, Math.min((viewportHeight - tooltipRect.height) / 2, viewportHeight - tooltipRect.height - 10));
+                        }
+                    }
+                }
+            }
+            
+            tooltip.style.left = left + 'px';
+            tooltip.style.top = top + 'px';
+            
+            // Now fade it in
+            setTimeout(() => {
+                tooltip.style.opacity = '1';
+                tooltip.classList.add('show');
+            }, 10);
+        };
+
+        // Schedule hide with delay
+        window.scheduleHideStorageClassTooltip = function(tooltipId) {
+            // Cancel any existing timeout
+            cancelHideStorageClassTooltip(tooltipId);
+            
+            // Schedule hide after a short delay
+            storageClassTooltipTimeouts[tooltipId] = setTimeout(() => {
+                hideStorageClassTooltip(tooltipId);
+            }, 100);
+        };
+
+        // Cancel scheduled hide
+        window.cancelHideStorageClassTooltip = function(tooltipId) {
+            if (storageClassTooltipTimeouts[tooltipId]) {
+                clearTimeout(storageClassTooltipTimeouts[tooltipId]);
+                delete storageClassTooltipTimeouts[tooltipId];
+            }
+        };
+
+        // Hide storage class tooltip
+        window.hideStorageClassTooltip = function(tooltipId) {
+            cancelHideStorageClassTooltip(tooltipId);
+            
+            const tooltip = document.getElementById(tooltipId);
+            if (tooltip) {
+                tooltip.style.opacity = '0';
+                tooltip.classList.remove('show');
+                setTimeout(() => {
+                    tooltip.style.display = 'none';
+                }, 200); // Wait for fade out transition
+            }
+        };
+
+        // Render Storage Class tooltip content
+        function renderStorageClassTooltip(sc) {
+            if (!sc) return '';
+            
+            let html = '';
+            
+            // Header
+            html += `<div style="background: var(--accent-blue); padding: 10px 12px; color: white; border-radius: 6px 6px 0 0;">`;
+            html += `<div style="font-weight: 600; font-size: 12px;">${escapeHtml(sc.name)}</div>`;
+            html += '</div>';
+            
+            // Main content
+            html += '<div style="padding: 12px; background: var(--bg-secondary); overflow-y: auto; max-height: 60vh;">';
+            
+            // Basic properties
+            html += '<div style="margin-bottom: 10px;">';
+            html += `<div style="margin-bottom: 6px;"><span style="color: var(--text-secondary); font-size: 10px;">Reclaim Policy:</span> <span style="font-weight: 500;">${escapeHtml(sc.reclaimPolicy || '-')}</span></div>`;
+            html += `<div style="margin-bottom: 6px;"><span style="color: var(--text-secondary); font-size: 10px;">Volume Binding Mode:</span> <span style="font-weight: 500;">${escapeHtml(sc.volumeBindingMode || '-')}</span></div>`;
+            html += `<div style="margin-bottom: 6px;"><span style="color: var(--text-secondary); font-size: 10px;">Allow Volume Expansion:</span> <span style="font-weight: 500; color: ${sc.allowVolumeExpansion ? 'var(--success-green)' : 'var(--text-secondary)'};">${sc.allowVolumeExpansion ? 'Yes' : 'No'}</span></div>`;
+            html += '</div>';
+            
+            // Parameters section
+            if (Object.keys(sc.parameters).length > 0) {
+                html += '<div style="border-top: 1px solid var(--border-color); padding-top: 10px; margin-top: 10px;">';
+                html += '<div style="color: var(--accent-green); font-weight: 600; margin-bottom: 8px; font-size: 11px;">Parameters</div>';
+                html += '<div style="background: var(--bg-tertiary); border-radius: 4px; padding: 8px; max-height: 250px; overflow-y: auto;">';
+                
+                // Group parameters
+                const csiParams = [];
+                const storageParams = [];
+                const otherParams = [];
+                
+                for (const [key, value] of Object.entries(sc.parameters)) {
+                    if (key.startsWith('csi.storage.k8s.io/')) {
+                        csiParams.push({ key, value });
+                    } else if (['serialNumber', 'poolID', 'portID', 'connectionType', 'storageEfficiency', 'replicationType'].includes(key)) {
+                        storageParams.push({ key, value });
+                    } else {
+                        otherParams.push({ key, value });
+                    }
+                }
+                
+                // Storage-specific parameters
+                if (storageParams.length > 0) {
+                    for (const { key, value } of storageParams) {
+                        // Format key nicely, handling acronyms like ID
+                        let displayKey = key;
+                        // Handle common acronyms first
+                        displayKey = displayKey.replace(/ID/g, 'ID');
+                        displayKey = displayKey.replace(/FC/g, 'FC');
+                        displayKey = displayKey.replace(/CSI/g, 'CSI');
+                        displayKey = displayKey.replace(/K8s/g, 'K8s');
+                        // Add space before capital letters, but not for consecutive capitals (acronyms)
+                        displayKey = displayKey.replace(/([a-z])([A-Z])/g, '$1 $2');
+                        displayKey = displayKey.replace(/^./, str => str.toUpperCase());
+                        html += `<div style="margin-bottom: 5px; padding-bottom: 5px; border-bottom: 1px solid rgba(255,255,255,0.05);">`;
+                        html += `<div style="color: var(--text-secondary); font-size: 10px; margin-bottom: 2px;">${escapeHtml(displayKey)}</div>`;
+                        html += `<div style="color: var(--accent-green); font-weight: 500; font-family: monospace; font-size: 11px;">${escapeHtml(String(value))}</div>`;
+                        html += `</div>`;
+                    }
+                }
+                
+                // CSI parameters - only show fstype
+                const fstypeParam = csiParams.find(p => p.key === 'csi.storage.k8s.io/fstype');
+                if (fstypeParam) {
+                    html += `<div style="margin-top: ${storageParams.length > 0 ? '6px' : '0'}; padding-top: ${storageParams.length > 0 ? '6px' : '0'}; border-top: ${storageParams.length > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none'};">`;
+                    html += `<div style="margin-bottom: 5px; padding-bottom: 5px; border-bottom: 1px solid rgba(255,255,255,0.05);">`;
+                    html += `<div style="color: var(--text-secondary); font-size: 10px; margin-bottom: 2px;">File System Type</div>`;
+                    html += `<div style="color: var(--accent-green); font-weight: 500; font-family: monospace; font-size: 11px;">${escapeHtml(String(fstypeParam.value))}</div>`;
+                    html += `</div>`;
+                    html += '</div>';
+                }
+                
+                // Other parameters
+                if (otherParams.length > 0) {
+                    html += `<div style="margin-top: ${(storageParams.length > 0 || csiParams.length > 0) ? '6px' : '0'}; padding-top: ${(storageParams.length > 0 || csiParams.length > 0) ? '6px' : '0'}; border-top: ${(storageParams.length > 0 || csiParams.length > 0) ? '1px solid rgba(255,255,255,0.05)' : 'none'};">`;
+                    for (const { key, value } of otherParams) {
+                        html += `<div style="margin-bottom: 3px; font-size: 10px;">`;
+                        html += `<span style="color: var(--text-secondary);">${escapeHtml(key)}:</span> `;
+                        html += `<span style="color: var(--text-primary);">${escapeHtml(String(value))}</span>`;
+                        html += `</div>`;
+                    }
+                    html += '</div>';
+                }
+                
+                html += '</div>';
+                html += '</div>';
+            }
+            
+            html += '</div>';
+            return html;
+        }
+
+        // Find Replications associated with a DRPolicy
+        function findReplicationsForPolicy(clusterName, policyName) {
+            let clusterContent = null;
+            
+            if (typeof state.clusterContext === 'object' && state.clusterContext !== null) {
+                clusterContent = state.clusterContext[clusterName];
+            } else if (typeof state.clusterContext === 'string') {
+                clusterContent = state.clusterContext;
+            }
+            
+            if (!clusterContent) return [];
+            
+            const replications = parseReplications(clusterName, clusterContent);
+            const associatedReplications = [];
+            
+            // Pattern: replication--{policyName}--
+            const pattern = new RegExp(`^replication--${policyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}--`);
+            
+            for (const replicationBlock of replications) {
+                // Extract the name from the replication block
+                const nameMatch = replicationBlock.match(/^\s{4}name:\s*(.+)$/m);
+                if (nameMatch) {
+                    const replicationName = nameMatch[1].trim();
+                    if (pattern.test(replicationName)) {
+                        const parsed = parseReplicationBlock(replicationBlock);
+                        associatedReplications.push({
+                            name: replicationName,
+                            yaml: replicationBlock.trim(),
+                            parsed: parsed
+                        });
+                    }
+                }
+            }
+            
+            return associatedReplications;
+        }
+
+        // Show Replications modal for a DRPolicy
+        window.showDRPolicyReplications = function(clusterName, policyName) {
+            // Collect replications from all clusters if viewing all, or just the specified cluster
+            const allReplications = {};
+            let totalCount = 0;
+            
+            if (typeof state.clusterContext === 'object' && state.clusterContext !== null) {
+                // Multi-cluster: check if we should show all clusters or just one
+                const clustersToCheck = clusterName === 'all' ? Object.keys(state.clusterContext) : [clusterName];
+                
+                for (const cluster of clustersToCheck) {
+                    const replications = findReplicationsForPolicy(cluster, policyName);
+                    if (replications.length > 0) {
+                        allReplications[cluster] = replications;
+                        totalCount += replications.length;
+                    }
+                }
+            } else if (typeof state.clusterContext === 'string') {
+                // Single cluster format
+                const actualClusterName = clusterName === 'all' ? 'primary-cluster' : clusterName;
+                const replications = findReplicationsForPolicy(actualClusterName, policyName);
+                if (replications.length > 0) {
+                    allReplications[actualClusterName] = replications;
+                    totalCount = replications.length;
+                }
+            }
+            
+            const modal = document.getElementById('yamlModal');
+            const title = document.getElementById('yamlModalTitle');
+            const content = document.getElementById('yamlModalContent');
+            
+            if (totalCount === 0) {
+                title.textContent = `Replications for DRPolicy: ${policyName}${clusterName !== 'all' ? ` (${clusterName})` : ''}`;
+                content.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--text-secondary);">No replications found for this DRPolicy</div>';
+                modal.classList.add('active');
+                return;
+            }
+            
+            const clusterCount = Object.keys(allReplications).length;
+            title.textContent = `Replications for DRPolicy: ${policyName} - ${totalCount} found${clusterCount > 1 ? ` across ${clusterCount} cluster(s)` : clusterName !== 'all' ? ` (${clusterName})` : ''}`;
+            
+            // Group replications by name to find matches across clusters
+            const replicationsByName = {};
+            const sortedClusters = Object.keys(allReplications).sort();
+            
+            for (const cluster of sortedClusters) {
+                const replications = allReplications[cluster];
+                for (const repl of replications) {
+                    if (!replicationsByName[repl.name]) {
+                        replicationsByName[repl.name] = {};
+                    }
+                    replicationsByName[repl.name][cluster] = repl;
+                }
+            }
+            
+            // Display replications using collapsible sections with formatted view and YAML toggle
+            let html = '<div style="margin: 0; padding: 0;">';
+            let sectionIndex = 0;
+            const sortedNames = Object.keys(replicationsByName).sort();
+            
+            for (const replName of sortedNames) {
+                const replClusters = replicationsByName[replName];
+                const clusterKeys = Object.keys(replClusters).sort();
+                const isMultiCluster = clusterKeys.length > 1;
+                
+                // If multi-cluster, show side-by-side comparison
+                if (isMultiCluster && clusterKeys.length === 2) {
+                    const primaryCluster = clusterKeys[0];
+                    const secondaryCluster = clusterKeys[1];
+                    const primaryRepl = replClusters[primaryCluster];
+                    const secondaryRepl = replClusters[secondaryCluster];
+                    
+                    // Compare for diffs
+                    const diffs = compareReplications(primaryRepl.parsed, secondaryRepl.parsed);
+                    const hasDiffs = Object.keys(diffs).length > 0;
+                    
+                    const idx = sectionIndex++;
+                    const sectionId = `repl-section-${idx}`;
+                    const toggleId = `repl-toggle-${idx}`;
+                    const formattedViewId = `repl-formatted-${idx}`;
+                    const yamlViewId = `repl-yaml-${idx}`;
+                    
+                    html += `
+                        <div class="context-section" style="margin-bottom: 8px; margin-top: ${sectionIndex === 1 ? '0' : '0'};">
+                            <div class="context-header" style="padding: 8px 12px; font-weight: 500; align-items: center; margin: 0; border-bottom: 1px solid var(--border-color);">
+                                <span onclick="toggleReplicationSection(${idx})" style="cursor: pointer; flex: 1; font-size: 12px; line-height: 1.5; text-align: left; display: flex; align-items: center;">
+                                    <span style="color: var(--accent-green); font-family: monospace; font-weight: 500;">${replName}</span>
+                                    ${hasDiffs ? '<span style="color: var(--warning-yellow); margin-left: 8px; font-size: 10px;">⚠️ Differences detected</span>' : ''}
+                                </span>
+                                <div class="context-header-controls" style="gap: 8px;">
+                                    <button onclick="toggleReplicationView(${idx}, event)" id="repl-view-toggle-${idx}" style="padding: 4px 8px; background: var(--accent-blue); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">📄 View YAML</button>
+                                    <button class="copy-section-btn" onclick="copyReplicationYAML(${idx}, event)" title="Copy to clipboard" style="padding: 4px 8px; font-size: 11px;">📋</button>
+                                    <span class="toggle-icon" id="${toggleId}" onclick="toggleReplicationSection(${idx})" style="cursor: pointer; font-size: 12px;">▼</span>
+                                </div>
+                            </div>
+                            <div class="context-content" id="${sectionId}" style="padding: 0 12px; max-height: 400px; line-height: 1.4; white-space: normal; margin: 0;">
+                                    <div id="${formattedViewId}" style="margin: 0; padding: 0; display: block;">
+                                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                                        <div style="border-right: 1px solid var(--border-color); padding-right: 12px;">
+                                            <div style="font-weight: 600; color: var(--accent-blue); margin-bottom: 8px; font-size: 11px;">${primaryCluster}</div>
+                                            ${renderReplicationDetails(primaryRepl.parsed, false, diffs, true, primaryCluster)}
+                                        </div>
+                                        <div style="padding-left: 12px;">
+                                            <div style="font-weight: 600; color: var(--accent-blue); margin-bottom: 8px; font-size: 11px;">${secondaryCluster}</div>
+                                            ${renderReplicationDetails(secondaryRepl.parsed, false, diffs, false, secondaryCluster)}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div id="${yamlViewId}" style="display: none; margin: 0; padding: 0;">
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                                        <div style="border-right: 1px solid var(--border-color); padding-right: 12px;">
+                                            <div style="font-weight: 600; color: var(--accent-blue); margin-bottom: 8px; font-size: 11px;">${primaryCluster}</div>
+                                            <div class="yaml-content" style="margin: 0; padding: 0; white-space: pre; font-size: 10px;">
+${escapeHtml(primaryRepl.yaml.trim())}
+                                            </div>
+                                        </div>
+                                        <div style="padding-left: 12px;">
+                                            <div style="font-weight: 600; color: var(--accent-blue); margin-bottom: 8px; font-size: 11px;">${secondaryCluster}</div>
+                                            <div class="yaml-content" style="margin: 0; padding: 0; white-space: pre; font-size: 10px;">
+${escapeHtml(secondaryRepl.yaml.trim())}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    // Single cluster or more than 2 clusters - show normally
+                    for (const cluster of clusterKeys) {
+                        const repl = replClusters[cluster];
+                        const trimmedYAML = repl.yaml.trim();
+                        const idx = sectionIndex++;
+                        const sectionId = `repl-section-${idx}`;
+                        const toggleId = `repl-toggle-${idx}`;
+                        const formattedViewId = `repl-formatted-${idx}`;
+                        const yamlViewId = `repl-yaml-${idx}`;
+                        
+                        html += `
+                            <div class="context-section" style="margin-bottom: 8px; margin-top: ${sectionIndex === 1 ? '0' : '0'};">
+                                <div class="context-header" style="padding: 8px 12px; font-weight: 500; align-items: center; margin: 0; border-bottom: 1px solid var(--border-color);">
+                                    <span onclick="toggleReplicationSection(${idx})" style="cursor: pointer; flex: 1; font-size: 12px; line-height: 1.5; text-align: left; display: flex; align-items: center;">
+                                        ${clusterCount > 1 ? `<span style="color: var(--accent-blue); margin-right: 6px; font-weight: 600;">[${cluster}]</span>` : ''}
+                                        <span style="color: var(--accent-green); font-family: monospace; font-weight: 500;">${repl.name}</span>
+                                    </span>
+                                    <div class="context-header-controls" style="gap: 8px;">
+                                        <button onclick="toggleReplicationView(${idx}, event)" id="repl-view-toggle-${idx}" style="padding: 4px 8px; background: var(--accent-blue); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">📄 View YAML</button>
+                                        <button class="copy-section-btn" onclick="copyReplicationYAML(${idx}, event)" title="Copy to clipboard" style="padding: 4px 8px; font-size: 11px;">📋</button>
+                                        <span class="toggle-icon" id="${toggleId}" onclick="toggleReplicationSection(${idx})" style="cursor: pointer; font-size: 12px;">▼</span>
+                                    </div>
+                                </div>
+                                <div class="context-content" id="${sectionId}" style="padding: 0 12px; max-height: 400px; line-height: 1.4; white-space: normal; margin: 0;">
+                                    <div id="${formattedViewId}" style="margin: 0; padding: 0; display: block;">
+                                        ${renderReplicationDetails(repl.parsed, false, null, true, cluster)}
+                                    </div>
+                                    <div id="${yamlViewId}" style="display: none; margin: 0; padding: 0;">
+                                        <div class="yaml-content" style="margin: 0; padding: 0; white-space: pre;">
+${escapeHtml(trimmedYAML)}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                }
+            }
+            
+            html += '</div>';
+            content.innerHTML = html;
+            modal.classList.add('active');
+        };
+
+        // Toggle between formatted and YAML view for a replication
+        window.toggleReplicationView = function(index, event) {
+            event.stopPropagation();
+            
+            const formattedView = document.getElementById(`repl-formatted-${index}`);
+            const yamlView = document.getElementById(`repl-yaml-${index}`);
+            const toggleBtn = document.getElementById(`repl-view-toggle-${index}`);
+            
+            if (!formattedView || !yamlView || !toggleBtn) return;
+            
+            const showingYAML = yamlView.style.display !== 'none';
+            
+            if (showingYAML) {
+                // Switch to formatted view
+                formattedView.style.display = 'block';
+                yamlView.style.display = 'none';
+                toggleBtn.textContent = '📄 View YAML';
+            } else {
+                // Switch to YAML view
+                formattedView.style.display = 'none';
+                yamlView.style.display = 'block';
+                toggleBtn.textContent = '📋 View Details';
+            }
+        };
+
+        // Toggle replication section
+        window.toggleReplicationSection = function(index) {
+            const content = document.getElementById(`repl-section-${index}`);
+            const toggle = document.getElementById(`repl-toggle-${index}`);
+            
+            if (content && toggle) {
+                content.classList.toggle('collapsed');
+                toggle.classList.toggle('collapsed');
+            }
+        };
+
+        // Copy replication YAML or formatted content
+        window.copyReplicationYAML = function(index, event) {
+            event.stopPropagation();
+            
+            const formattedView = document.getElementById(`repl-formatted-${index}`);
+            const yamlView = document.getElementById(`repl-yaml-${index}`);
+            
+            // Determine which view is currently visible
+            const showingYAML = yamlView && yamlView.style.display !== 'none';
+            const contentElement = showingYAML ? yamlView : formattedView;
+            const text = contentElement.textContent;
+            
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = event.target.closest('.copy-section-btn');
+                const originalText = btn.innerHTML;
+                btn.innerHTML = '✓ Copied!';
+                btn.style.background = '#4ade80';
+                
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.style.background = '';
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy:', err);
+                alert('Failed to copy to clipboard');
+            });
+        };
+
+        // Extract raw YAML for a specific DRPolicy from cluster context
+        function extractDRPolicyYAML(clusterName, policyName) {
+            let clusterContent = null;
+            
+            if (typeof state.clusterContext === 'object' && state.clusterContext !== null) {
+                clusterContent = state.clusterContext[clusterName];
+            } else if (typeof state.clusterContext === 'string') {
+                clusterContent = state.clusterContext;
+            }
+            
+            if (!clusterContent) return null;
+            
+            // Find the DRPolicies section
+            const drPolicySectionMatch = clusterContent.match(/===\s+DRPolicies\s+===\n([\s\S]*?)(?:\n===|$)/);
+            if (!drPolicySectionMatch) return null;
+            
+            const drPolicySection = drPolicySectionMatch[1];
+            const lines = drPolicySection.split('\n');
+            
+            // Find the policy block that contains this policy name
+            let policyYAML = '';
+            let inPolicy = false;
+            let policyStartIndex = -1;
+            
+            // First, find where the policy starts
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                
+                // Check if this line starts a policy item
+                if (line.match(/^-\s+apiVersion:\s+hspc\.hitachi\.com/)) {
+                    // Look ahead to see if this policy has our name
+                    let foundName = false;
+                    for (let j = i; j < Math.min(i + 30, lines.length); j++) {
+                        const nameMatch = lines[j].match(/^\s{4}name:\s*(.+)$/);
+                        if (nameMatch && nameMatch[1].trim() === policyName) {
+                            foundName = true;
+                            policyStartIndex = i;
+                            break;
+                        }
+                        // Stop if we hit the next policy or end of items
+                        if (j > i && (lines[j].match(/^-\s+apiVersion:/) || lines[j].match(/^kind:\s*List/))) {
+                            break;
+                        }
+                    }
+                    
+                    if (foundName) {
+                        inPolicy = true;
+                        policyYAML = line;
+                        continue;
+                    }
+                }
+                
+                // If we're in the policy, collect lines
+                if (inPolicy && policyStartIndex >= 0 && i > policyStartIndex) {
+                    // Check if we've hit the next policy or end of items
+                    if (line.match(/^-\s+apiVersion:/) || line.match(/^kind:\s*List/) || line.match(/^metadata:\s*$/)) {
+                        break;
+                    }
+                    
+                    // Add line if it's part of the policy (indented or empty, or continuation of the policy)
+                    if (line.match(/^\s/) || line.trim() === '') {
+                        policyYAML += '\n' + line;
+                    } else if (line.trim() !== '') {
+                        // Non-indented non-empty line means we've left the policy
+                        break;
+                    }
+                }
+            }
+            
+            return policyYAML.trim() || null;
+        }
+
+        // Show YAML modal
+        window.showDRPolicyYAML = function(clusterName, policyName) {
+            const yaml = extractDRPolicyYAML(clusterName, policyName);
+            if (!yaml) {
+                alert('Could not find YAML for this DRPolicy');
+                return;
+            }
+            
+            const modal = document.getElementById('yamlModal');
+            const title = document.getElementById('yamlModalTitle');
+            const content = document.getElementById('yamlModalContent');
+            
+            title.textContent = `DRPolicy: ${policyName} (${clusterName})`;
+            content.textContent = yaml;
+            modal.classList.add('active');
+        };
+
+        // Close YAML modal
+        window.closeYamlModal = function() {
+            const modal = document.getElementById('yamlModal');
+            modal.classList.remove('active');
+        };
+
+        // Setup modal close on outside click
+        function setupYamlModal() {
+            const modal = document.getElementById('yamlModal');
+            if (modal) {
+                modal.addEventListener('click', function(event) {
+                    if (event.target === modal) {
+                        closeYamlModal();
+                    }
+                });
+            }
+        }
+
+        // Render DR Policies
+        function renderDRPolicies() {
+            const drPoliciesContent = document.getElementById('drpoliciesContent');
+            
+            // Collect DRPolicies from all clusters
+            const allDRPolicies = {};
+            
+            if (typeof state.clusterContext === 'object' && state.clusterContext !== null) {
+                // Multi-cluster format
+                for (const clusterName of Object.keys(state.clusterContext)) {
+                    const clusterContent = state.clusterContext[clusterName];
+                    if (clusterContent) {
+                        const policies = parseDRPolicies(clusterName, clusterContent);
+                        if (policies.length > 0) {
+                            allDRPolicies[clusterName] = policies;
+                        }
+                    }
+                }
+            } else if (typeof state.clusterContext === 'string') {
+                // Single cluster format
+                const policies = parseDRPolicies('primary-cluster', state.clusterContext);
+                if (policies.length > 0) {
+                    allDRPolicies['primary-cluster'] = policies;
+                }
+            }
+            
+            // Check if we have any DRPolicies
+            const totalPolicies = Object.values(allDRPolicies).reduce((sum, policies) => sum + policies.length, 0);
+            
+            if (totalPolicies === 0) {
+                drPoliciesContent.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🔄</div>
+                        <p>No DR Policies found in cluster context</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            // Get all unique policy names across clusters
+            const allPolicyNames = new Set();
+            Object.values(allDRPolicies).forEach(policies => {
+                policies.forEach(policy => allPolicyNames.add(policy.name));
+            });
+            
+            const sortedPolicyNames = Array.from(allPolicyNames).sort();
+            const clusterNames = Object.keys(allDRPolicies).sort();
+            
+            let html = '<div style="padding: 20px;">';
+            
+            // Summary
+            html += `
+                <div style="margin-bottom: 20px;">
+                    <h2 style="color: var(--accent-blue); margin-bottom: 10px;">🔄 DR Policies</h2>
+                    <p style="color: var(--text-secondary); font-size: 13px;">
+                        Found <strong>${totalPolicies}</strong> DR Policy(ies) across <strong>${clusterNames.length}</strong> cluster(s)
+                    </p>
+                </div>
+            `;
+            
+            // Comparison view for policies with the same name
+            for (const policyName of sortedPolicyNames) {
+                const policiesByName = {};
+                clusterNames.forEach(cluster => {
+                    const policy = allDRPolicies[cluster]?.find(p => p.name === policyName);
+                    if (policy) {
+                        policiesByName[cluster] = policy;
+                    }
+                });
+                
+                const policyClusters = Object.keys(policiesByName);
+                const isMultiCluster = policyClusters.length > 1;
+                
+                // Count replications for this policy across all clusters
+                let totalReplications = 0;
+                const replicationCounts = {};
+                for (const cluster of policyClusters) {
+                    const replications = findReplicationsForPolicy(cluster, policyName);
+                    replicationCounts[cluster] = replications.length;
+                    totalReplications += replications.length;
+                }
+                
+                html += `
+                    <div class="config-section" style="margin-bottom: 30px; border: 1px solid var(--border-color); border-radius: 4px; padding: 15px;">
+                        <div class="config-section-header" style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <span style="font-size: 16px; font-weight: bold; color: var(--accent-blue);">${policyName}</span>
+                                ${isMultiCluster ? '<span style="color: var(--success-green); font-size: 12px; margin-left: 10px;">(Multi-cluster)</span>' : ''}
+                                ${totalReplications > 0 ? `<span style="color: var(--text-secondary); font-size: 12px; margin-left: 10px;">(${totalReplications} replication${totalReplications > 1 ? 's' : ''})</span>` : ''}
+                            </div>
+                            <div style="display: flex; gap: 8px;">
+                                ${totalReplications > 0 ? `<button onclick="showDRPolicyReplications('${isMultiCluster ? 'all' : policyClusters[0]}', '${policyName}')" style="padding: 6px 12px; background: var(--accent-green); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">🔄 Replications (${totalReplications})</button>` : ''}
+                                <button onclick="showDRPolicyYAML('${policyClusters[0]}', '${policyName}')" style="padding: 6px 12px; background: var(--accent-blue); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">📄 View YAML</button>
+                            </div>
+                        </div>
+                `;
+                
+                if (isMultiCluster) {
+                    // Side-by-side comparison
+                    html += `
+                        <div style="display: grid; grid-template-columns: repeat(${policyClusters.length}, 1fr); gap: 15px; margin-bottom: 15px;">
+                    `;
+                    
+                    for (const cluster of policyClusters) {
+                        const policy = policiesByName[cluster];
+                        const replications = findReplicationsForPolicy(cluster, policyName);
+                        const replicationCount = replications.length;
+                        
+                        html += `
+                            <div style="border: 1px solid var(--border-color); border-radius: 4px; padding: 12px; background: var(--bg-tertiary);">
+                                <div style="font-weight: bold; color: var(--accent-blue); margin-bottom: 10px; font-size: 14px; display: flex; justify-content: space-between; align-items: center;">
+                                    <span>${cluster}${replicationCount > 0 ? ` <span style="color: var(--text-secondary); font-size: 11px;">(${replicationCount} repl${replicationCount > 1 ? 's' : ''})</span>` : ''}</span>
+                                    <div style="display: flex; gap: 6px;">
+                                        ${replicationCount > 0 ? `<button onclick="showDRPolicyReplications('${cluster}', '${policyName}')" style="padding: 4px 8px; background: var(--accent-green); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">🔄 Repl</button>` : ''}
+                                        <button onclick="showDRPolicyYAML('${cluster}', '${policyName}')" style="padding: 4px 8px; background: var(--accent-blue); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">📄 YAML</button>
+                                    </div>
+                                </div>
+                                ${renderDRPolicyDetails(policy, true)}
+                            </div>
+                        `;
+                    }
+                    
+                    html += `</div>`;
+                } else {
+                    // Single cluster view
+                    const policy = policiesByName[policyClusters[0]];
+                    const replications = findReplicationsForPolicy(policyClusters[0], policyName);
+                    const replicationCount = replications.length;
+                    
+                    html += `
+                        <div style="margin-bottom: 10px;">
+                            <div style="font-weight: bold; color: var(--accent-blue); margin-bottom: 10px; font-size: 14px; display: flex; justify-content: space-between; align-items: center;">
+                                <span>${policyClusters[0]}${replicationCount > 0 ? ` <span style="color: var(--text-secondary); font-size: 12px;">(${replicationCount} replication${replicationCount > 1 ? 's' : ''})</span>` : ''}</span>
+                                <div style="display: flex; gap: 8px;">
+                                    ${replicationCount > 0 ? `<button onclick="showDRPolicyReplications('${policyClusters[0]}', '${policyName}')" style="padding: 6px 12px; background: var(--accent-green); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">🔄 Replications (${replicationCount})</button>` : ''}
+                                    <button onclick="showDRPolicyYAML('${policyClusters[0]}', '${policyName}')" style="padding: 6px 12px; background: var(--accent-blue); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">📄 View YAML</button>
+                                </div>
+                            </div>
+                            ${renderDRPolicyDetails(policy, false)}
+                        </div>
+                    `;
+                }
+                
+                html += `</div>`;
+            }
+            
+            html += '</div>';
+            drPoliciesContent.innerHTML = html;
+        }
+        
+        // Render DR Policy details
+        function renderDRPolicyDetails(policy, isCompact) {
+            const formatValue = (value) => {
+                if (value === null || value === undefined) return '<span style="color: var(--text-secondary);">-</span>';
+                if (typeof value === 'object') {
+                    if (Array.isArray(value)) {
+                        return value.length > 0 ? value.join(', ') : '<span style="color: var(--text-secondary);">-</span>';
+                    }
+                    return JSON.stringify(value, null, 2);
+                }
+                return String(value);
+            };
+            
+            let html = '<div style="font-size: 12px;">';
+            
+            // Metadata
+            html += `
+                <div style="margin-bottom: ${isCompact ? '8px' : '12px'};">
+                    <strong style="color: var(--text-secondary);">Namespace:</strong> ${formatValue(policy.namespace)}
+                </div>
+            `;
+            
+            // Spec
+            html += `<div style="margin-bottom: ${isCompact ? '8px' : '12px'};"><strong style="color: var(--accent-green);">Spec:</strong></div>`;
+            html += '<div style="margin-left: 15px; margin-bottom: 10px;">';
+            
+            if (policy.spec.consistencyRequired !== undefined) {
+                html += `<div style="margin-bottom: 4px;"><strong>Consistency Required:</strong> ${formatValue(policy.spec.consistencyRequired)}</div>`;
+            }
+            if (policy.spec.desiredState) {
+                html += `<div style="margin-bottom: 4px;"><strong>Desired State:</strong> <span style="color: var(--accent-green);">${formatValue(policy.spec.desiredState)}</span></div>`;
+            }
+            if (policy.spec.replicationAttribute) {
+                html += `<div style="margin-bottom: 4px;"><strong>Replication Attribute:</strong> <span style="color: var(--info-blue);">${formatValue(policy.spec.replicationAttribute)}</span></div>`;
+            }
+            if (policy.spec.replicationMode) {
+                html += `<div style="margin-bottom: 4px;"><strong>Replication Mode:</strong> ${formatValue(policy.spec.replicationMode)}</div>`;
+            }
+            if (policy.spec.drSource) {
+                html += `<div style="margin-bottom: 4px;"><strong>DR Source:</strong> ${formatValue(policy.spec.drSource.clusterName || policy.spec.drSource)}</div>`;
+            }
+            if (policy.spec.drTarget) {
+                html += `<div style="margin-bottom: 4px;"><strong>DR Target:</strong> ${formatValue(policy.spec.drTarget.clusterName || policy.spec.drTarget)}</div>`;
+            }
+            if (policy.spec.primaryJournalId !== undefined) {
+                html += `<div style="margin-bottom: 4px;"><strong>Primary Journal ID:</strong> ${formatValue(policy.spec.primaryJournalId)}</div>`;
+            }
+            if (policy.spec.secondaryJournalId !== undefined) {
+                html += `<div style="margin-bottom: 4px;"><strong>Secondary Journal ID:</strong> ${formatValue(policy.spec.secondaryJournalId)}</div>`;
+            }
+            if (policy.spec.pvcSelector && policy.spec.pvcSelector.matchWorkloadLabels) {
+                html += `<div style="margin-bottom: 4px;"><strong>PVC Selector (Workload Labels):</strong> ${formatValue(policy.spec.pvcSelector.matchWorkloadLabels)}</div>`;
+            }
+            
+            html += '</div>';
+            
+            // Status
+            if (policy.status && Object.keys(policy.status).length > 0) {
+                html += `<div style="margin-bottom: ${isCompact ? '8px' : '12px'};"><strong style="color: var(--warning-yellow);">Status:</strong></div>`;
+                html += '<div style="margin-left: 15px; margin-bottom: 10px;">';
+                
+                if (policy.status.status) {
+                    const statusColor = policy.status.status === 'Healthy' || policy.status.status === 'Ready' 
+                        ? 'var(--success-green)' 
+                        : policy.status.status === 'Replication Started'
+                        ? 'var(--info-blue)'
+                        : 'var(--warning-yellow)';
+                    html += `<div style="margin-bottom: 4px;"><strong>Status:</strong> <span style="color: ${statusColor};">${formatValue(policy.status.status)}</span></div>`;
+                }
+                
+                if (policy.status.selectedPVCs && policy.status.selectedPVCs.length > 0) {
+                    html += `<div style="margin-bottom: 4px;"><strong>Selected PVCs:</strong></div>`;
+                    html += '<div style="margin-left: 15px;">';
+                    policy.status.selectedPVCs.forEach(pvc => {
+                        html += `<div style="margin-bottom: 2px; font-size: 11px;">• ${pvc.name}${pvc.namespace ? ` (${pvc.namespace})` : ''}</div>`;
+                    });
+                    html += '</div>';
+                }
+                
+                html += '</div>';
+            }
+            
+            html += '</div>';
+            return html;
+        }
+
         // Setup Tabs
         function setupTabs() {
             document.querySelectorAll('.tab').forEach(tab => {
@@ -5179,6 +6811,8 @@
                     } else if (tabName === 'config') {
                         lazyParseStorageClasses();
                         renderConfiguration();
+                    } else if (tabName === 'drpolicies') {
+                        renderDRPolicies();
                     }
                 });
             });
