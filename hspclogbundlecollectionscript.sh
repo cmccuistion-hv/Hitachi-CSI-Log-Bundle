@@ -14,7 +14,7 @@
 set -euo pipefail
 
 # Script version
-SCRIPT_VERSION="1.5.1"
+SCRIPT_VERSION="1.6.0"
 
 # Helper functions
 log() { echo "[$(date +'%H:%M:%S')] $*"; }
@@ -34,7 +34,9 @@ else
     die "Neither kubectl nor oc found. Please install kubectl/oc or configure PATH with location, or place it in the current directory."
 fi
 
-KUBECONFIG_ARG=""
+KUBECONFIG_PRIMARY=""
+KUBECONFIG_SECONDARY=""
+KUBECONFIG_ARG=""  # For backward compatibility
 NAMESPACE=""
 OUTPUT_DIR="./hspc-csi-logs-$(date +%Y%m%d-%H%M%S)"
 PARALLEL_JOBS=4
@@ -44,10 +46,23 @@ TIMEOUT_SEC=300
 CRD_NAME="hspcs.csi.hitachi.com"
 KIND="HSPC"
 SERVICE_ACCOUNT="hspc-csi-sa"
+REPLICATION_NAMESPACE="hspc-replication-operator-system"
 
+# KUBE function that uses current KUBECONFIG_ARG
 KUBE() {
     if [[ -n "$KUBECONFIG_ARG" ]]; then
         "$CMD" $KUBECONFIG_ARG "$@"
+    else
+        "$CMD" "$@"
+    fi
+}
+
+# KUBE function with explicit kubeconfig
+KUBE_WITH_CONFIG() {
+    local kubeconfig="$1"
+    shift
+    if [[ -n "$kubeconfig" ]]; then
+        "$CMD" --kubeconfig="$kubeconfig" "$@"
     else
         "$CMD" "$@"
     fi
@@ -69,45 +84,336 @@ detect_openshift() {
     return 1
 }
 
+detect_dr_operator() {
+    # Check for CRDs in group hspc.hitachi.com
+    # Required: LocalVolume, RemoteVolume, Replication
+    # Optional: DRPolicy
+    local required_crds=("localvolumes.hspc.hitachi.com" "remotevolumes.hspc.hitachi.com" "replications.hspc.hitachi.com")
+    local optional_crds=("drpolicies.hspc.hitachi.com")
+    local found_required=0
+    
+    for crd in "${required_crds[@]}"; do
+        if KUBE get crd "$crd" >/dev/null 2>&1; then
+            ((found_required++))
+        fi
+    done
+    
+    # All required CRDs must be present
+    if [[ $found_required -eq ${#required_crds[@]} ]]; then
+        # Check optional DRPolicy (log but don't require)
+        if KUBE get crd "${optional_crds[0]}" >/dev/null 2>&1; then
+            log "DR-Operator detected (with DRPolicy)"
+        else
+            log "DR-Operator detected (DRPolicy not found)"
+        fi
+        return 0
+    fi
+    
+    return 1
+}
+
 get_pods() {
-    KUBE get pods -n "$NAMESPACE" \
+    local kubeconfig="$1"
+    local namespace="$2"
+    KUBE_WITH_CONFIG "$kubeconfig" get pods -n "$namespace" \
         -o jsonpath='{range .items[?(@.spec.serviceAccountName=="'"$SERVICE_ACCOUNT"'")]}{.metadata.name}{"\n"}{end}'
 }
 
+get_all_pods() {
+    local kubeconfig="$1"
+    local namespace="$2"
+    KUBE_WITH_CONFIG "$kubeconfig" get pods -n "$namespace" \
+        -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'
+}
+
 collect_pod_logs() {
-    local pod="$1"
+    local kubeconfig="$1"
+    local pod="$2"
+    local namespace="$3"
+    local output_dir="$4"
+    
     log "Collecting logs from pod $pod ..."
     
     # Get all containers in the pod
     local containers
-    containers=$(timeout "$TIMEOUT_SEC" "$CMD" ${KUBECONFIG_ARG:-} get pod "$pod" -n "$NAMESPACE" \
-        -o jsonpath='{.spec.containers[*].name}' 2>>"$OUTPUT_DIR/errors.log")
+    containers=$(timeout "$TIMEOUT_SEC" "$CMD" --kubeconfig="$kubeconfig" get pod "$pod" -n "$namespace" \
+        -o jsonpath='{.spec.containers[*].name}' 2>>"$output_dir/errors.log")
     
     if [[ -z "$containers" ]]; then
-        echo "$pod (no containers found)" >> "$OUTPUT_DIR/failed-pods.txt"
+        echo "$pod (no containers found)" >> "$output_dir/failed-pods.txt"
         log "FAILED $pod - no containers found"
         return
     fi
     
     # Collect logs from each container
     for container in $containers; do
-        local file="$OUTPUT_DIR/${pod}_${container}.log"
-        if timeout "$TIMEOUT_SEC" "$CMD" ${KUBECONFIG_ARG:-} logs "$pod" -n "$NAMESPACE" -c "$container" \
-            --limit-bytes=200000000 > "$file" 2>>"$OUTPUT_DIR/errors.log"; then
+        local file="$output_dir/${pod}_${container}.log"
+        if timeout "$TIMEOUT_SEC" "$CMD" --kubeconfig="$kubeconfig" logs "$pod" -n "$namespace" -c "$container" \
+            --limit-bytes=200000000 > "$file" 2>>"$output_dir/errors.log"; then
             log "  ✓ Saved $pod/$container"
         else
-            echo "$pod/$container" >> "$OUTPUT_DIR/failed-pods.txt"
+            echo "$pod/$container" >> "$output_dir/failed-pods.txt"
             log "  ✗ FAILED $pod/$container - see errors.log"
         fi
     done
 }
 
-export -f collect_pod_logs
-export CMD KUBECONFIG_ARG NAMESPACE OUTPUT_DIR TIMEOUT_SEC
+collect_custom_resources() {
+    local kubeconfig="$1"
+    local output_file="$2"
+    
+    # Collect LocalVolumes
+    echo -e "\n=== LocalVolumes ===" >> "$output_file"
+    if KUBE_WITH_CONFIG "$kubeconfig" get localvolume --all-namespaces -o yaml >> "$output_file" 2>/dev/null; then
+        : # Success
+    else
+        echo "No LocalVolumes found" >> "$output_file"
+    fi
+    
+    # Collect RemoteVolumes
+    echo -e "\n=== RemoteVolumes ===" >> "$output_file"
+    if KUBE_WITH_CONFIG "$kubeconfig" get remotevolume --all-namespaces -o yaml >> "$output_file" 2>/dev/null; then
+        : # Success
+    else
+        echo "No RemoteVolumes found" >> "$output_file"
+    fi
+    
+    # Collect Replications
+    echo -e "\n=== Replications ===" >> "$output_file"
+    if KUBE_WITH_CONFIG "$kubeconfig" get replication --all-namespaces -o yaml >> "$output_file" 2>/dev/null; then
+        : # Success
+    else
+        echo "No Replications found" >> "$output_file"
+    fi
+    
+    # Collect DRPolicies (optional)
+    echo -e "\n=== DRPolicies ===" >> "$output_file"
+    if KUBE_WITH_CONFIG "$kubeconfig" get drpolicy --all-namespaces -o yaml >> "$output_file" 2>/dev/null; then
+        : # Success
+    else
+        echo "No DRPolicies found" >> "$output_file"
+    fi
+}
+
+collect_from_cluster() {
+    local kubeconfig="$1"
+    local cluster_name="$2"
+    local cluster_output_dir="$OUTPUT_DIR/$cluster_name"
+    local temp_kubeconfig_arg=""
+    
+    if [[ -n "$kubeconfig" ]]; then
+        temp_kubeconfig_arg="--kubeconfig=$kubeconfig"
+    fi
+    
+    log "=== Collecting from $cluster_name cluster ==="
+    
+    mkdir -p "$cluster_output_dir"
+    
+    # Temporarily set KUBECONFIG_ARG for this cluster
+    local saved_kubeconfig_arg="$KUBECONFIG_ARG"
+    KUBECONFIG_ARG="$temp_kubeconfig_arg"
+    
+    # Detect OpenShift and switch command if needed
+    local cluster_cmd="$CMD"
+    if [[ "$cluster_cmd" == "$KUBECTL_CMD" ]]; then
+        # Test OpenShift with this cluster's kubeconfig
+        local line_count
+        line_count=$(KUBE_WITH_CONFIG "$kubeconfig" api-resources --api-group=route.openshift.io 2>/dev/null | wc -l)
+        if [[ $line_count -gt 1 ]] && [[ -n "$OC_CMD" ]]; then
+            cluster_cmd="$OC_CMD"
+            log "OpenShift detected on $cluster_name → using oc"
+        fi
+    fi
+    
+    # Check for HSPC CRD
+    if ! KUBE_WITH_CONFIG "$kubeconfig" get crd "$CRD_NAME" >/dev/null 2>&1; then
+        if [[ "$cluster_cmd" == "$KUBECTL_CMD" ]] && [[ -n "$OC_CMD" ]]; then
+            cluster_cmd="$OC_CMD"
+            log "CRD not visible with kubectl on $cluster_name → forcing oc"
+        fi
+    fi
+    
+    # Initialize PODS array (may be empty if no pods found)
+    local PODS=()
+    local cluster_namespace=""
+    
+    # Check for HSPC CRD and discover namespace
+    if KUBE_WITH_CONFIG "$kubeconfig" get crd "$CRD_NAME" >/dev/null 2>&1; then
+        # Discover namespace
+        cluster_namespace="$NAMESPACE"
+        if [[ -z "$cluster_namespace" ]]; then
+            cluster_namespace=$(KUBE_WITH_CONFIG "$kubeconfig" get "$KIND" --all-namespaces -o jsonpath='{.items[0].metadata.namespace}' 2>/dev/null)
+        fi
+        
+        if [[ -n "$cluster_namespace" ]]; then
+            log "HSPC namespace on $cluster_name: $cluster_namespace"
+        else
+            log "WARNING: No HSPC CR found on $cluster_name - will collect cluster info only"
+        fi
+    else
+        log "WARNING: CRD $CRD_NAME not found on $cluster_name - will collect cluster info only"
+    fi
+    
+    # Collect HSPC pod logs (only if namespace was discovered)
+    if [[ -n "$cluster_namespace" ]]; then
+        mapfile -t PODS < <(get_pods "$kubeconfig" "$cluster_namespace" 2>/dev/null || true)
+        if [[ ${#PODS[@]} -gt 0 ]]; then
+            log "Found ${#PODS[@]} HSPC pods on $cluster_name: ${PODS[*]}"
+            
+            if command -v parallel >/dev/null 2>&1; then
+                log "Collecting HSPC logs in parallel ($PARALLEL_JOBS jobs)..."
+                for pod in "${PODS[@]}"; do
+                    collect_pod_logs "$kubeconfig" "$pod" "$cluster_namespace" "$cluster_output_dir" &
+                done
+                wait
+            else
+                log "Collecting HSPC logs sequentially..."
+                for pod in "${PODS[@]}"; do
+                    collect_pod_logs "$kubeconfig" "$pod" "$cluster_namespace" "$cluster_output_dir"
+                done
+            fi
+        else
+            log "No HSPC pods found on $cluster_name"
+        fi
+    fi
+    
+    # Check for DR-Operator
+    local dr_operator_detected=false
+    local required_crds=("localvolumes.hspc.hitachi.com" "remotevolumes.hspc.hitachi.com" "replications.hspc.hitachi.com")
+    local found_required=0
+    
+    for crd in "${required_crds[@]}"; do
+        if KUBE_WITH_CONFIG "$kubeconfig" get crd "$crd" >/dev/null 2>&1; then
+            ((found_required++))
+        fi
+    done
+    
+    if [[ $found_required -eq ${#required_crds[@]} ]]; then
+        dr_operator_detected=true
+        log "DR-Operator detected on $cluster_name"
+        
+        # Collect replication operator logs
+        if KUBE_WITH_CONFIG "$kubeconfig" get namespace "$REPLICATION_NAMESPACE" >/dev/null 2>&1; then
+            log "Collecting logs from $REPLICATION_NAMESPACE namespace..."
+            local rep_output_dir="$cluster_output_dir/$REPLICATION_NAMESPACE"
+            mkdir -p "$rep_output_dir"
+            
+            mapfile -t REP_PODS < <(get_all_pods "$kubeconfig" "$REPLICATION_NAMESPACE")
+            if [[ ${#REP_PODS[@]} -gt 0 ]]; then
+                log "Found ${#REP_PODS[@]} pods in $REPLICATION_NAMESPACE"
+                for pod in "${REP_PODS[@]}"; do
+                    collect_pod_logs "$kubeconfig" "$pod" "$REPLICATION_NAMESPACE" "$rep_output_dir"
+                done
+            else
+                log "No pods found in $REPLICATION_NAMESPACE"
+            fi
+        else
+            log "Namespace $REPLICATION_NAMESPACE not found on $cluster_name"
+        fi
+    fi
+    
+    # Generate cluster context (always, even if there were errors)
+    local context_file="$cluster_output_dir/cluster-context.txt"
+    log "Generating cluster-context.txt for $cluster_name..."
+    
+    # Use a subshell with set +e to prevent early exit on errors
+    (
+        set +e  # Don't exit on errors in this subshell
+        echo "=== Log Collection Script Version ==="
+        echo "Script Version: $SCRIPT_VERSION"
+        echo "Collection Date: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+        echo "Cluster: $cluster_name"
+        
+        echo -e "\n=== Cluster Version ==="
+        KUBE_WITH_CONFIG "$kubeconfig" version 2>>"$cluster_output_dir/errors.log"
+        
+        echo -e "\n=== Orchestration Platform ==="
+        local line_count
+        line_count=$(KUBE_WITH_CONFIG "$kubeconfig" api-resources --api-group=route.openshift.io 2>/dev/null | wc -l)
+        if [[ $line_count -gt 1 ]]; then
+            echo "Platform: OpenShift"
+            KUBE_WITH_CONFIG "$kubeconfig" version -o json 2>/dev/null | grep -E '"gitVersion"|"platform"' || true
+        else
+            echo "Platform: Kubernetes"
+        fi
+        
+        echo -e "\n=== Node OS & Runtime Information ==="
+        KUBE_WITH_CONFIG "$kubeconfig" get nodes -o wide 2>>"$cluster_output_dir/errors.log"
+        echo -e "\n--- Detailed Node Info ---"
+        KUBE_WITH_CONFIG "$kubeconfig" get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}  OS: {.status.nodeInfo.osImage}{"\n"}  Kernel: {.status.nodeInfo.kernelVersion}{"\n"}  Architecture: {.status.nodeInfo.architecture}{"\n"}  Container Runtime: {.status.nodeInfo.containerRuntimeVersion}{"\n"}  Kubelet: {.status.nodeInfo.kubeletVersion}{"\n"}{"\n"}{end}' 2>>"$cluster_output_dir/errors.log"
+        
+        if [[ -n "$cluster_namespace" ]]; then
+            echo -e "\n=== HSPC CR ==="
+            KUBE_WITH_CONFIG "$kubeconfig" get hspc -n "$cluster_namespace" -o yaml 2>/dev/null || echo "No HSPC CR found"
+            
+            echo -e "\n=== Deployments ==="
+            KUBE_WITH_CONFIG "$kubeconfig" get deploy -n "$cluster_namespace" -o yaml 2>/dev/null || echo "No deployments found"
+            
+            echo -e "\n=== DaemonSets ==="
+            KUBE_WITH_CONFIG "$kubeconfig" get daemonset -n "$cluster_namespace" -o yaml 2>/dev/null || echo "No DaemonSets found"
+            
+            echo -e "\n=== ReplicaSets ==="
+            KUBE_WITH_CONFIG "$kubeconfig" get rs -n "$cluster_namespace" -o yaml 2>/dev/null || echo "No ReplicaSets found"
+            
+            echo -e "\n=== HSPC StorageClasses ==="
+            sc_names=$(KUBE_WITH_CONFIG "$kubeconfig" get storageclass -o jsonpath='{range .items[?(@.provisioner=="hspc.csi.hitachi.com")]}{.metadata.name}{"\n"}{end}' 2>/dev/null | grep -v '^$' || true)
+            if [[ -n "$sc_names" ]]; then
+                echo "$sc_names" | while read -r sc; do
+                    [[ -n "$sc" ]] && KUBE_WITH_CONFIG "$kubeconfig" get storageclass "$sc" -o yaml 2>/dev/null || true
+                done
+            else
+                echo "No HSPC StorageClasses found"
+            fi
+            
+            # Collect Custom Resources if DR-Operator detected
+            if [[ "$dr_operator_detected" == "true" ]]; then
+                collect_custom_resources "$kubeconfig" "$context_file"
+            fi
+            
+            if [[ ${#PODS[@]} -gt 0 ]]; then
+                echo -e "\n=== Pod Ownership Chain ==="
+                for pod in "${PODS[@]}"; do
+                    owner_kind=$(KUBE_WITH_CONFIG "$kubeconfig" get pod "$pod" -n "$cluster_namespace" -o jsonpath='{.metadata.ownerReferences[0].kind}' 2>/dev/null || echo "None")
+                    owner_name=$(KUBE_WITH_CONFIG "$kubeconfig" get pod "$pod" -n "$cluster_namespace" -o jsonpath='{.metadata.ownerReferences[0].name}' 2>/dev/null || echo "None")
+                    if [[ "$owner_kind" == "ReplicaSet" ]]; then
+                        deploy=$(KUBE_WITH_CONFIG "$kubeconfig" get rs "$owner_name" -n "$cluster_namespace" -o jsonpath='{.metadata.ownerReferences[0].name}' 2>/dev/null || echo "unknown")
+                        echo "$pod → ReplicaSet/$owner_name → Deployment/$deploy"
+                    else
+                        echo "$pod → $owner_kind/$owner_name"
+                    fi
+                done
+                
+                echo -e "\n=== Pod Descriptions ==="
+                for pod in "${PODS[@]}"; do
+                    echo "=== $pod ==="
+                    KUBE_WITH_CONFIG "$kubeconfig" describe pod "$pod" -n "$cluster_namespace" 2>/dev/null || true
+                    echo
+                done
+            fi
+            
+            echo -e "\n=== Recent Events ==="
+            KUBE_WITH_CONFIG "$kubeconfig" get events -n "$cluster_namespace" --sort-by='.lastTimestamp' 2>/dev/null | tail -100 || KUBE_WITH_CONFIG "$kubeconfig" get events -n "$cluster_namespace" 2>/dev/null | tail -100 || echo "No events available"
+        else
+            echo -e "\n=== Note ==="
+            echo "HSPC namespace not discovered - limited cluster information collected"
+        fi
+    ) > "$context_file" 2>>"$cluster_output_dir/errors.log"
+    
+    if [[ -f "$context_file" ]]; then
+        log "Cluster context saved: $context_file"
+    else
+        log "WARNING: Failed to create cluster-context.txt"
+    fi
+    
+    KUBECONFIG_ARG="$saved_kubeconfig_arg"
+    log "Collection from $cluster_name complete"
+}
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --kubeconfig) KUBECONFIG_ARG="--kubeconfig=$2"; shift 2 ;;
+        --kubeconfig) KUBECONFIG_ARG="--kubeconfig=$2"; KUBECONFIG_PRIMARY="$2"; shift 2 ;;
+        --kubeconfig-primary) KUBECONFIG_PRIMARY="$2"; shift 2 ;;
+        --kubeconfig-secondary) KUBECONFIG_SECONDARY="$2"; shift 2 ;;
         --oc)         [[ -n "$OC_CMD" ]] || die "oc binary not found"; CMD="$OC_CMD"; shift ;;
         -n|--namespace) NAMESPACE="$2"; shift 2 ;;
         -d|--dir)     OUTPUT_DIR="$2"; shift 2 ;;
@@ -116,12 +422,14 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             cat <<'EOF'
 Usage: ./hspclogbundlecollectionscript.sh [options]
-  --kubeconfig <file>   (optional)
-  --oc                  Force ./oc or system oc
-  -n <ns>               Force namespace
-  -d <dir>              Output dir
-  -j <N>                Parallel jobs
-  --no-compress         No zip
+  --kubeconfig <file>          Primary cluster kubeconfig (backward compatible)
+  --kubeconfig-primary <file>  Primary cluster kubeconfig
+  --kubeconfig-secondary <file>  Secondary cluster kubeconfig (for dual-cluster collection)
+  --oc                         Force ./oc or system oc
+  -n <ns>                      Force namespace
+  -d <dir>                     Output dir
+  -j <N>                       Parallel jobs
+  --no-compress                No zip
 EOF
             exit 0
             ;;
@@ -129,114 +437,45 @@ EOF
     esac
 done
 
+# Set KUBECONFIG_ARG from primary if not already set (for backward compatibility)
+if [[ -z "$KUBECONFIG_ARG" ]] && [[ -n "$KUBECONFIG_PRIMARY" ]]; then
+    KUBECONFIG_ARG="--kubeconfig=$KUBECONFIG_PRIMARY"
+fi
+
 log "Using: $CMD ${KUBECONFIG_ARG:- (default kubeconfig)}"
 
-if [[ "$CMD" == "$KUBECTL_CMD" ]] && detect_openshift; then
-    if [[ -n "$OC_CMD" ]]; then
-        log "OpenShift detected → switching to oc"
-        CMD="$OC_CMD"
-    else
-        log "OpenShift detected but 'oc' binary not found → continuing with kubectl"
-    fi
-fi
-
-if ! KUBE get crd "$CRD_NAME" >/dev/null 2>&1; then
-    if [[ "$CMD" == "$KUBECTL_CMD" ]] && [[ -n "$OC_CMD" ]]; then
-        log "CRD not visible with kubectl → forcing oc"
-        CMD="$OC_CMD"
-    fi
-fi
-
-KUBE get crd "$CRD_NAME" >/dev/null || die "CRD $CRD_NAME not found"
-
-if [[ -z "$NAMESPACE" ]]; then
-    log "Discovering HSPC namespace..."
-    NAMESPACE=$(KUBE get "$KIND" --all-namespaces -o jsonpath='{.items[0].metadata.namespace}')
-    [[ -n "$NAMESPACE" ]] || die "No HSPC CR found"
-    log "HSPC namespace: $NAMESPACE"
+# Determine which kubeconfig to use for primary
+PRIMARY_KUBECONFIG="$KUBECONFIG_PRIMARY"
+if [[ -z "$PRIMARY_KUBECONFIG" ]] && [[ -n "$KUBECONFIG_ARG" ]]; then
+    # Extract kubeconfig path from --kubeconfig=path format
+    PRIMARY_KUBECONFIG="${KUBECONFIG_ARG#--kubeconfig=}"
 fi
 
 mkdir -p "$OUTPUT_DIR"
 
-mapfile -t PODS < <(get_pods)
-[[ ${#PODS[@]} -gt 0 ]] || die "No HSPC pods found"
+# Collect from primary cluster (always)
+# Use set +e temporarily to prevent script exit on errors
+set +e
+collect_from_cluster "$PRIMARY_KUBECONFIG" "primary-cluster"
+primary_exit_code=$?
+set -e
 
-log "Found ${#PODS[@]} pods: ${PODS[*]}"
-
-if command -v parallel >/dev/null 2>&1; then
-    log "Collecting in parallel ($PARALLEL_JOBS jobs)..."
-    printf '%s\n' "${PODS[@]}" | parallel -j "$PARALLEL_JOBS" collect_pod_logs
-else
-    log "Collecting sequentially..."
-    for pod in "${PODS[@]}"; do collect_pod_logs "$pod"; done
+if [[ $primary_exit_code -ne 0 ]]; then
+    log "WARNING: Primary cluster collection completed with errors (exit code: $primary_exit_code)"
 fi
 
-{
-    echo "=== Log Collection Script Version ==="
-    echo "Script Version: $SCRIPT_VERSION"
-    echo "Collection Date: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+# Collect from secondary cluster if specified
+if [[ -n "$KUBECONFIG_SECONDARY" ]]; then
+    log ""
+    set +e
+    collect_from_cluster "$KUBECONFIG_SECONDARY" "secondary-cluster"
+    secondary_exit_code=$?
+    set -e
     
-    echo -e "\n=== Cluster Version ==="
-    KUBE version
-
-    echo -e "\n=== Orchestration Platform ==="
-    if detect_openshift; then
-        echo "Platform: OpenShift"
-        KUBE version -o json 2>/dev/null | grep -E '"gitVersion"|"platform"' || true
-    else
-        echo "Platform: Kubernetes"
+    if [[ $secondary_exit_code -ne 0 ]]; then
+        log "WARNING: Secondary cluster collection completed with errors (exit code: $secondary_exit_code)"
     fi
-
-    echo -e "\n=== Node OS & Runtime Information ==="
-    KUBE get nodes -o wide
-    echo -e "\n--- Detailed Node Info ---"
-    KUBE get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}  OS: {.status.nodeInfo.osImage}{"\n"}  Kernel: {.status.nodeInfo.kernelVersion}{"\n"}  Architecture: {.status.nodeInfo.architecture}{"\n"}  Container Runtime: {.status.nodeInfo.containerRuntimeVersion}{"\n"}  Kubelet: {.status.nodeInfo.kubeletVersion}{"\n"}{"\n"}{end}'
-
-    echo -e "\n=== HSPC CR ==="
-    KUBE get hspc -n "$NAMESPACE" -o yaml
-
-    echo -e "\n=== Deployments ==="
-    KUBE get deploy -n "$NAMESPACE" -o yaml 2>/dev/null || echo "No deployments found"
-
-    echo -e "\n=== DaemonSets ==="
-    KUBE get daemonset -n "$NAMESPACE" -o yaml 2>/dev/null || echo "No DaemonSets found"
-
-    echo -e "\n=== ReplicaSets ==="
-    KUBE get rs -n "$NAMESPACE" -o yaml 2>/dev/null || echo "No ReplicaSets found"
-
-    echo -e "\n=== HSPC StorageClasses ==="
-    sc_names=$(KUBE get storageclass -o jsonpath='{range .items[?(@.provisioner=="hspc.csi.hitachi.com")]}{.metadata.name}{"\n"}{end}' 2>/dev/null | grep -v '^$' || true)
-    if [[ -n "$sc_names" ]]; then
-        echo "$sc_names" | while read -r sc; do
-            [[ -n "$sc" ]] && KUBE get storageclass "$sc" -o yaml 2>/dev/null || true
-        done
-    else
-        echo "No HSPC StorageClasses found"
-    fi
-
-    echo -e "\n=== Pod Ownership Chain ==="
-    for pod in "${PODS[@]}"; do
-        owner_kind=$(KUBE get pod "$pod" -n "$NAMESPACE" -o jsonpath='{.metadata.ownerReferences[0].kind}' 2>/dev/null || echo "None")
-        owner_name=$(KUBE get pod "$pod" -n "$NAMESPACE" -o jsonpath='{.metadata.ownerReferences[0].name}' 2>/dev/null || echo "None")
-        if [[ "$owner_kind" == "ReplicaSet" ]]; then
-            deploy=$(KUBE get rs "$owner_name" -n "$NAMESPACE" -o jsonpath='{.metadata.ownerReferences[0].name}' 2>/dev/null || echo "unknown")
-            echo "$pod → ReplicaSet/$owner_name → Deployment/$deploy"
-        else
-            echo "$pod → $owner_kind/$owner_name"
-        fi
-    done
-
-    echo -e "\n=== Pod Descriptions ==="
-    for pod in "${PODS[@]}"; do
-        echo "=== $pod ==="
-        KUBE describe pod "$pod" -n "$NAMESPACE"
-        echo
-    done
-
-    echo -e "\n=== Recent Events ==="
-    KUBE get events -n "$NAMESPACE" --sort-by='.lastTimestamp' 2>/dev/null | tail -100 || KUBE get events -n "$NAMESPACE" 2>/dev/null | tail -100 || echo "No events available"
-
-} > "$OUTPUT_DIR/cluster-context.txt"
+fi
 
 log "Collection complete → $OUTPUT_DIR"
 

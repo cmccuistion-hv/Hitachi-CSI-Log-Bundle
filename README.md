@@ -5,13 +5,16 @@ A comprehensive log collection tool for Hitachi CSI drivers running in Kubernete
 ## Features
 
 - 🔍 **Auto-Discovery**: Automatically detects HSPC namespace and resources
-- 🎯 **Platform-Aware**: Detects OpenShift vs Kubernetes and uses appropriate tooling
+- 🎯 **Platform-Aware**: Detects OpenShift, Kubernetes, k3s, Rancher, and RKE2 clusters
 - 📦 **Complete Collection**: Gathers logs from all containers in each pod
 - 🏗️ **Full Context**: Captures cluster version, node info, manifests, events, and resource descriptions
+- 🔄 **Multi-Cluster Support**: Collect logs from both primary and secondary clusters for DR-Operator environments
+- 🛡️ **DR-Operator Integration**: Automatically detects and collects DR-Operator logs and Custom Resources
 - ⚡ **Parallel Processing**: Bash script supports parallel log collection (optional)
 - 🗜️ **Auto-Compression**: Creates zip archives automatically (optional)
 - 🛡️ **Robust**: Handles timeouts, errors gracefully, and provides fallback mechanisms
 - 💻 **Cross-Platform**: Both Bash and PowerShell versions available
+- 📊 **Advanced Log Viewer**: HTML-based viewer with filtering, search, DR Policies management, and multi-cluster comparison
 
 ## Requirements
 
@@ -88,6 +91,11 @@ A comprehensive log collection tool for Hitachi CSI drivers running in Kubernete
 ./hspclogbundlecollectionscript.sh --no-compress
 ```
 
+**Multi-cluster collection** (DR-Operator environments):
+```bash
+./hspclogbundlecollectionscript.sh --kubeconfig-primary /path/to/primary-kubeconfig --kubeconfig-secondary /path/to/secondary-kubeconfig
+```
+
 **Combined options**:
 ```bash
 ./hspclogbundlecollectionscript.sh --kubeconfig ./kubeconfig --oc -n hspc-system -j 8
@@ -142,6 +150,11 @@ sed -i 's/\r$//' hspclogbundlecollectionscript.sh
 .\hspclogbundlecollectionscript.ps1 -NoCompress
 ```
 
+**Multi-cluster collection** (DR-Operator environments):
+```powershell
+.\hspclogbundlecollectionscript.ps1 -KubeconfigPrimary C:\path\to\primary-kubeconfig -KubeconfigSecondary C:\path\to\secondary-kubeconfig
+```
+
 **Combined options**:
 ```powershell
 .\hspclogbundlecollectionscript.ps1 -Kubeconfig .\kubeconfig -Oc -Namespace hspc-system -Dir .\logs
@@ -158,6 +171,8 @@ sed -i 's/\r$//' hspclogbundlecollectionscript.sh
 | `-n, --namespace <ns>` | Target namespace | Auto-discover from HSPC CR |
 | `-d, --dir <path>` | Output directory | `./hspc-csi-logs-YYYYMMDD-HHMMSS` |
 | `-j, --jobs <N>` | Number of parallel jobs | `4` |
+| `--kubeconfig-primary <file>` | Path to primary cluster kubeconfig (for multi-cluster) | - |
+| `--kubeconfig-secondary <file>` | Path to secondary cluster kubeconfig (for multi-cluster) | - |
 | `--no-compress` | Skip zip creation | Creates zip |
 | `-h, --help` | Show help message | - |
 
@@ -170,6 +185,8 @@ sed -i 's/\r$//' hspclogbundlecollectionscript.sh
 | `-Namespace <ns>` | Target namespace | Auto-discover from HSPC CR |
 | `-Dir <path>` | Output directory | `.\hspc-csi-logs-YYYYMMDD-HHMMSS` |
 | `-Jobs <N>` | Number of parallel jobs | `4` (sequential by default) |
+| `-KubeconfigPrimary <file>` | Path to primary cluster kubeconfig (for multi-cluster) | - |
+| `-KubeconfigSecondary <file>` | Path to secondary cluster kubeconfig (for multi-cluster) | - |
 | `-NoCompress` | Skip zip creation | Creates zip |
 
 ## Output
@@ -182,7 +199,21 @@ The script creates a directory (and optionally a zip file) containing:
 
 ## Log Viewer
 
-This repository also includes an HTML-based log viewer (`Hitachi-CSI-log-Bundle-Viewer.html`) for easy analysis of collected logs. Simply open the HTML file in a browser and load your log bundle directory.
+This repository includes an HTML-based log viewer (`Hitachi-CSI-log-Bundle-Viewer.html`) for comprehensive analysis of collected logs. Simply open the HTML file in a browser and load your log bundle directory.
+
+### Viewer Features
+
+- **Multi-Cluster Support**: View and filter logs, health data, and configuration by cluster when using multi-cluster bundles
+- **DR Policies Management**: Dedicated tab for viewing and managing DR Policies (automatically appears when DR-Operator CRDs are detected)
+  - Side-by-side comparison of matching DR Policies across clusters
+  - View associated replications with formatted and YAML views
+  - Comprehensive display of all DRPolicy spec and status fields
+  - Intelligent alerts for replication issues (e.g., replications missing on one cluster)
+  - Quick log filtering by DRPolicy name
+- **Advanced Filtering**: Filter logs by level, category, time range, and search terms
+- **Health & Diagnostics**: Pod health overview, node health, and error categorization
+- **Configuration Analysis**: View storage classes, port usage, and cluster resources with diff highlighting for multi-cluster comparisons
+- **Platform Detection**: Accurate identification and display of OpenShift, Kubernetes, k3s, Rancher, and RKE2 clusters
 
 ### Cluster Context File (`cluster-context.txt`)
 Contains comprehensive cluster and application information:
@@ -197,6 +228,7 @@ Contains comprehensive cluster and application information:
 8. **Pod Ownership Chain**: Shows which Deployments/DaemonSets own which pods
 9. **Pod Descriptions**: Detailed `kubectl describe` output for each pod
 10. **Recent Events**: Last 100 events in the namespace
+11. **DR-Operator Resources** (when detected): LocalVolume, RemoteVolume, Replication, and DRPolicy Custom Resources
 
 ### Error Tracking
 - `errors.log` - Any errors encountered during collection
