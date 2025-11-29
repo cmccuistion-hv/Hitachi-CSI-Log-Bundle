@@ -575,6 +575,96 @@
             color: var(--info-blue);
         }
 
+        /* Context expansion styles */
+        .log-line.context-line {
+            background: rgba(128, 128, 128, 0.05);
+            border-left: 2px solid rgba(128, 128, 128, 0.2);
+            padding-left: 8px;
+            opacity: 0.85;
+        }
+
+        .log-line.context-target {
+            background: rgba(255, 215, 0, 0.15);
+            border-left: 3px solid rgba(255, 215, 0, 0.5);
+            padding-left: 6px;
+        }
+
+        /* Context edge controls */
+        .context-edge-controls {
+            display: flex;
+            gap: 6px;
+            padding: 4px 8px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            margin: 4px 0;
+            font-size: 11px;
+        }
+
+        .context-edge-controls button {
+            padding: 4px 8px;
+            background: var(--accent-blue);
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 11px;
+            transition: opacity 0.2s;
+        }
+
+        .context-edge-controls button:hover {
+            opacity: 0.8;
+        }
+
+        .context-edge-controls button.secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .log-line-wrapper {
+            position: relative;
+        }
+
+        .log-line-tooltip {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            margin-top: 4px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 6px 8px;
+            display: none;
+            z-index: 1000;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            white-space: nowrap;
+        }
+
+        .log-line-tooltip.show {
+            display: flex;
+            gap: 8px;
+        }
+
+        .log-line-tooltip button {
+            padding: 4px 8px;
+            background: var(--accent-blue);
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 11px;
+            transition: opacity 0.2s;
+        }
+
+        .log-line-tooltip button:hover {
+            opacity: 0.8;
+        }
+
+        .log-line-tooltip button.secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
         .log-line .timestamp {
             color: var(--text-secondary);
         }
@@ -1329,8 +1419,6 @@
                         </div>
 
                         <div class="nav-buttons">
-                            <button class="btn btn-icon" id="prevError" title="Previous Error">↑</button>
-                            <button class="btn btn-icon" id="nextError" title="Next Error">↓</button>
                             <button class="btn" id="wordWrapBtn" title="Toggle word wrap">🔤 Wrap</button>
                         </div>
 
@@ -1479,6 +1567,9 @@
                 scrollTop: 0,
                 renderedRange: { start: 0, end: 0 }
             },
+            // Context expansion feature
+            expandedContexts: new Map(),  // Map of log identifiers to context arrays (20 before + target + 20 after)
+            hoverTimeout: null,  // Timeout for hover tooltip delay
             // Configuration data
             config: {
                 hosts: {},           // WWN -> host info
@@ -1507,10 +1598,13 @@
                 'volume-operations': { count: 0, pods: [], description: 'Volume provision/attach/detach/expand/resize failures' },
                 'snapshot-operations': { count: 0, pods: [], description: 'Snapshot create/delete failures, copy groups, snapshot class config (HSPC0x0000c037, 0x0000b00a)' },
                 'storage-feature-errors': { count: 0, pods: [], description: 'Storage feature incompatibility errors (HSPC0x00001022, SSB codes)' },
-                'permission-errors': { count: 0, pods: [], description: 'Permission and authentication errors - resource groups, credentials (HSPC0x00001007, 0x00001025)' },
-                'rest-api-failures': { count: 0, pods: [], description: 'REST API job failures from storage system' },
+                'permission-errors': { count: 0, pods: [], description: 'Permission and authentication errors - resource groups, credentials, access denied (HSPC0x00001007, 0x00001025, 0x00001001)' },
+                'rest-api-failures': { count: 0, pods: [], description: 'REST API job failures from storage system (COMMON_RESTAPI, REMOTE_RESTAPI, EXTERNAL_RESTAPI)' },
                 'multipath-issues': { count: 0, pods: [], description: 'Multipath configuration and device detection issues (HSPC0x0000d001)' },
                 'connectivity': { count: 0, pods: [], description: 'Storage connectivity issues' },
+                'replication-operations': { count: 0, pods: [], description: 'Replication CR operations, pair state management, LocalVolume/RemoteVolume reconciliation (HSPC0x0001200c, 0x00001030)' },
+                'dr-policy-errors': { count: 0, pods: [], description: 'DRPolicy reconciliation failures, PVC selection issues, peer site synchronization problems' },
+                'webhook-errors': { count: 0, pods: [], description: 'Admission webhook validation failures, pod validation errors' },
                 'other': { count: 0, pods: [], description: 'Other errors' }
             },
             volumeOperations: [],    // { timestamp, operation, volumeId, pod, status, message }
@@ -1880,10 +1974,13 @@
                 'volume-operations': { count: 0, pods: [], description: 'Volume provision/attach/detach/expand/resize failures' },
                 'snapshot-operations': { count: 0, pods: [], description: 'Snapshot create/delete failures, copy groups, snapshot class config (HSPC0x0000c037, 0x0000b00a)' },
                 'storage-feature-errors': { count: 0, pods: [], description: 'Storage feature incompatibility errors (HSPC0x00001022, SSB codes)' },
-                'permission-errors': { count: 0, pods: [], description: 'Permission and authentication errors - resource groups, credentials (HSPC0x00001007, 0x00001025)' },
-                'rest-api-failures': { count: 0, pods: [], description: 'REST API job failures from storage system' },
+                'permission-errors': { count: 0, pods: [], description: 'Permission and authentication errors - resource groups, credentials, access denied (HSPC0x00001007, 0x00001025, 0x00001001)' },
+                'rest-api-failures': { count: 0, pods: [], description: 'REST API job failures from storage system (COMMON_RESTAPI, REMOTE_RESTAPI, EXTERNAL_RESTAPI)' },
                 'multipath-issues': { count: 0, pods: [], description: 'Multipath configuration and device detection issues (HSPC0x0000d001)' },
                 'connectivity': { count: 0, pods: [], description: 'Storage connectivity issues' },
+                'replication-operations': { count: 0, pods: [], description: 'Replication CR operations, pair state management, LocalVolume/RemoteVolume reconciliation (HSPC0x0001200c, 0x00001030)' },
+                'dr-policy-errors': { count: 0, pods: [], description: 'DRPolicy reconciliation failures, PVC selection issues, peer site synchronization problems' },
+                'webhook-errors': { count: 0, pods: [], description: 'Admission webhook validation failures, pod validation errors' },
                 'other': { count: 0, pods: [], description: 'Other errors' }
             };
             state.volumeOperations = [];
@@ -2039,7 +2136,7 @@
         // Switch cluster view
         function switchCluster(cluster) {
             state.currentCluster = cluster;
-            invalidateCache(); // Clear filtered cache when switching clusters
+            invalidateCache(true); // Clear filtered cache and expanded contexts when switching clusters
             
             // Clear the log view when switching clusters
             // This prevents showing logs from the previous cluster
@@ -2197,13 +2294,34 @@
                     timestamp = timestampData.timestamp;
                     timestampDate = timestampData.timestampDate;
                     
-                    // Quick level detection without string methods
-                    if (line.indexOf('ERROR') !== -1 || line.indexOf('Error') !== -1 || line.indexOf('error') !== -1) {
-                        level = 'ERROR';
-                    } else if (line.indexOf('WARNING') !== -1 || line.indexOf('Warning') !== -1 || line.indexOf('WARN') !== -1) {
-                        level = 'WARNING';
+                    // Quick level detection - check for log level prefix first (I/E/W followed by timestamp)
+                    // Format: [pod]I1125 23:07:51.356971 or [pod]E1125 23:07:51.356971
+                    // Also handles: I1125 23:07:51.356971 (without brackets)
+                    const levelPrefixMatch = line.match(/(?:^[^\]]+\]|^)([IEW])\d{4}\s+\d{2}:\d{2}:\d{2}/);
+                    if (levelPrefixMatch) {
+                        const prefix = levelPrefixMatch[1];
+                        if (prefix === 'E') {
+                            level = 'ERROR';
+                        } else if (prefix === 'W') {
+                            level = 'WARNING';
+                        } else {
+                            level = 'INFO';
+                        }
                     } else {
-                        level = 'INFO';
+                        // Fallback to keyword detection (but be careful with words containing "error")
+                        // Check for explicit ERROR/WARNING keywords first
+                        if (line.indexOf('ERROR') !== -1 || (line.indexOf('Error') !== -1 && line.indexOf('Unhandled Error') !== -1)) {
+                            level = 'ERROR';
+                        } else if (line.indexOf('WARNING') !== -1 || line.indexOf('Warning') !== -1 || line.indexOf('WARN') !== -1) {
+                            level = 'WARNING';
+                        } else if (line.indexOf('error') !== -1 && (line.indexOf('Final error received') !== -1 || line.indexOf('Retrying') !== -1 || line.indexOf('Converting CCI error code') !== -1)) {
+                            // These are contextual INFO messages that contain "error" but aren't errors
+                            level = 'INFO';
+                        } else if (line.indexOf('error') !== -1) {
+                            level = 'ERROR';
+                        } else {
+                            level = 'INFO';
+                        }
                     }
                 }
 
@@ -2295,6 +2413,12 @@
                 return null;
             }
             
+            // Exclude informational messages that are not actual errors
+            // "Converting CCI error code" is informational regardless of detected level
+            if (line.indexOf('Converting CCI error code') !== -1) {
+                return null; // This is just informational, not an error
+            }
+            
             // Check for HSPC error codes first (fastest - most specific patterns)
             // Use indexOf for better performance than includes
             if (line.indexOf('HSPC0x') !== -1) {
@@ -2313,21 +2437,92 @@
                 if (line.indexOf('HSPC0x00001022') !== -1) {
                     return 'storage-feature-errors';
                 }
-                if (line.indexOf('HSPC0x00001007') !== -1 || line.indexOf('HSPC0x00001025') !== -1) {
+                if (line.indexOf('HSPC0x00001007') !== -1 || line.indexOf('HSPC0x00001025') !== -1 || line.indexOf('HSPC0x00001001') !== -1) {
                     return 'permission-errors';
                 }
                 if (line.indexOf('HSPC0x0000d001') !== -1) {
                     return 'multipath-issues';
                 }
+                if (line.indexOf('HSPC0x0001200c') !== -1 || line.indexOf('HSPC0x00001030') !== -1) {
+                    return 'replication-operations';
+                }
             }
             
             // Check for REST API failures (INFO level tracking)
-            if (level === 'INFO' && line.indexOf('COMMON_RESTAPI') !== -1) {
+            // Check for all REST API types: COMMON_RESTAPI, REMOTE_RESTAPI, EXTERNAL_RESTAPI
+            if (level === 'INFO' && (line.indexOf('COMMON_RESTAPI') !== -1 || line.indexOf('REMOTE_RESTAPI') !== -1 || line.indexOf('EXTERNAL_RESTAPI') !== -1)) {
+                // Exclude informational messages that are not actual errors
+                if (line.indexOf('Converting CCI error code') !== -1) {
+                    return null; // This is just informational, not an error
+                }
+                // Check for failed job states or error messages
                 if ((line.indexOf('"state":"Failed"') !== -1 && line.indexOf('"error":{') !== -1) ||
-                    (line.indexOf('"messageId":') !== -1 && line.indexOf('"error":') !== -1)) {
+                    (line.indexOf('"messageId":') !== -1 && line.indexOf('"error":') !== -1) ||
+                    (line.indexOf('HTTP status returned : 40') !== -1) ||
+                    (line.indexOf('HTTP status returned : 50') !== -1) ||
+                    (line.indexOf('extractHTTPStatusCodeError') !== -1)) {
+                    // Check if this is a replication-related REST API failure
+                    if (line.indexOf('remote-mirror-copypairs') !== -1 ||
+                        line.indexOf('remote-mirror-copygroup') !== -1 ||
+                        line.indexOf('/actions/split/') !== -1 ||
+                        line.indexOf('KART40041-E') !== -1 ||
+                        (line.indexOf('"messageId":"KART40041-E"') !== -1)) {
+                        return 'replication-operations';
+                    }
                     return 'rest-api-failures';
                 }
                 return null; // Don't categorize other INFO lines
+            }
+            
+            // Check for "Error returned from REST" or "Converting REST error" with replication error codes (INFO level)
+            if (level === 'INFO') {
+                if ((line.indexOf('Error returned from REST') !== -1 || line.indexOf('Converting REST error') !== -1) &&
+                    line.indexOf('KART40041-E') !== -1) {
+                    return 'replication-operations';
+                }
+                
+                // Check for contextual provisioning error messages (INFO level)
+                if (line.indexOf('Final error received') !== -1) {
+                    // Check context to determine category
+                    if (line.indexOf('removing PVC from claims') !== -1) {
+                        // Provisioning context - check if it's related to unsupported features
+                        // Note: The actual error appears on subsequent lines, but we can infer from context
+                        // If we see "CreateVolume failed" or "code = Unimplemented" nearby, it's unsupported-features
+                        // For now, categorize as volume-operations since it's a provisioning failure
+                        return 'volume-operations';
+                    }
+                    // Could be other contexts (deletion, etc.) - check for replication context
+                    if (line.indexOf('replication') !== -1 || line.indexOf('copy group') !== -1) {
+                        return 'replication-operations';
+                    }
+                    // Default to volume-operations for other "Final error received" contexts
+                    return 'volume-operations';
+                }
+                
+                // Check for retry messages that indicate previous errors
+                if (line.indexOf('Retrying syncing claim') !== -1 || line.indexOf('Retrying syncing volume') !== -1) {
+                    // These indicate a previous error occurred - categorize based on context
+                    if (line.indexOf('replication') !== -1 || line.indexOf('copy group') !== -1) {
+                        return 'replication-operations';
+                    }
+                    return 'volume-operations';
+                }
+                
+                // Check for "CreateVolume failed" messages (INFO level)
+                if (line.indexOf('CreateVolume failed') !== -1) {
+                    // Check if it mentions unsupported features
+                    if (line.indexOf('code = Unimplemented') !== -1 ||
+                        line.indexOf('specifying data source') !== -1) {
+                        return 'unsupported-features';
+                    }
+                    return 'volume-operations';
+                }
+                
+                // Check for "code = Unimplemented" in INFO level lines (GRPC responses, etc.)
+                if (line.indexOf('code = Unimplemented') !== -1 ||
+                    line.indexOf('specifying data source for this storage type is not supported') !== -1) {
+                    return 'unsupported-features';
+                }
             }
             
             // From here on, only ERROR level lines
@@ -2354,14 +2549,18 @@
             if (line.indexOf('Volume') !== -1 || line.indexOf('volume') !== -1) {
                 if (line.indexOf('ProvisioningFailed') !== -1 ||
                     line.indexOf('VolumeResizeFailed') !== -1 ||
+                    line.indexOf('VolumeFailedDelete') !== -1 ||
+                    line.indexOf('Volume deletion failed') !== -1 ||
                     line.indexOf('CreateVolume failed') !== -1 ||
                     line.indexOf('failed to provision') !== -1 ||
+                    line.indexOf('failed to delete') !== -1 ||
                     (line.indexOf('resize') !== -1 && line.indexOf('failed') !== -1) ||
                     line.indexOf('VolumeAttachment') !== -1 ||
                     line.indexOf('NodeStageVolume') !== -1 ||
                     line.indexOf('NodeUnstageVolume') !== -1 ||
                     line.indexOf('NodeExpandVolume') !== -1 ||
-                    line.indexOf('ControllerExpandVolume') !== -1) {
+                    line.indexOf('ControllerExpandVolume') !== -1 ||
+                    line.indexOf('still attached to node') !== -1) {
                     return 'volume-operations';
                 }
                 if (line.indexOf('the volume ID is invalid') !== -1) {
@@ -2414,8 +2613,11 @@
             // Permission errors
             if (line.indexOf('permissions for the resource group') !== -1 ||
                 line.indexOf('http status unauthorized') !== -1 ||
+                line.indexOf('Unauthorized') !== -1 ||
                 line.indexOf('check the user name and password') !== -1 ||
-                line.indexOf('KART30061-E') !== -1) {
+                line.indexOf('KART30061-E') !== -1 ||
+                line.indexOf('leaderelection') !== -1 ||
+                line.indexOf('resource lock') !== -1) {
                 return 'permission-errors';
             }
             
@@ -2424,6 +2626,72 @@
                 line.indexOf('Specified object does not exist') !== -1 ||
                 line.indexOf('failed to execute the command') !== -1) {
                 return 'configuration-errors';
+            }
+            
+            // Replication operations
+            if (line.indexOf('Replication') !== -1 || line.indexOf('replication') !== -1) {
+                if (line.indexOf('Reconciler error') !== -1 ||
+                    line.indexOf('validation failed') !== -1 ||
+                    line.indexOf('PersistentVolumeClaim validation failed') !== -1 ||
+                    line.indexOf('LocalVolume') !== -1 ||
+                    line.indexOf('RemoteVolume') !== -1 ||
+                    line.indexOf('replication pair') !== -1 ||
+                    line.indexOf('desiredPairState') !== -1 ||
+                    line.indexOf('WaitingForRemoteVolume') !== -1 ||
+                    line.indexOf('WaitingForLocalVolume') !== -1 ||
+                    line.indexOf('controlled by another Replication') !== -1 ||
+                    line.indexOf('ReplicationReconciler') !== -1 ||
+                    line.indexOf('LocalVolumeReconciler') !== -1 ||
+                    line.indexOf('RemoteVolumeReconciler') !== -1) {
+                    return 'replication-operations';
+                }
+            }
+            
+            // Replication REST API operations (remote-mirror-copypairs, split, etc.)
+            if (line.indexOf('remote-mirror-copypairs') !== -1 ||
+                line.indexOf('remote-mirror-copygroup') !== -1 ||
+                line.indexOf('/actions/split/') !== -1 ||
+                line.indexOf('KART40041-E') !== -1 ||
+                (line.indexOf('Converting REST error') !== -1 && line.indexOf('KART40041-E') !== -1)) {
+                return 'replication-operations';
+            }
+            
+            // DR Policy operations
+            if (line.indexOf('DRPolicy') !== -1 || line.indexOf('drpolicy') !== -1) {
+                if (line.indexOf('Reconciler error') !== -1 ||
+                    line.indexOf('failed to sync') !== -1 ||
+                    line.indexOf('syncDRPolicyToPeer') !== -1 ||
+                    line.indexOf('Selecting PVCs for DRPolicy') !== -1 ||
+                    line.indexOf('PVCSelectionComplete') !== -1 ||
+                    line.indexOf('PVCRemovalComplete') !== -1 ||
+                    line.indexOf('peer site') !== -1 ||
+                    line.indexOf('targetCluster') !== -1 ||
+                    line.indexOf('DRPolicyReconciler') !== -1) {
+                    return 'dr-policy-errors';
+                }
+            }
+            
+            // Webhook errors
+            if (line.indexOf('admission') !== -1 || line.indexOf('webhook') !== -1 || line.indexOf('Webhook') !== -1) {
+                if (line.indexOf('PodValidator') !== -1 ||
+                    line.indexOf('validation failed') !== -1 ||
+                    line.indexOf('admission webhook') !== -1 ||
+                    line.indexOf('admission denied') !== -1 ||
+                    line.indexOf('validation error') !== -1 ||
+                    line.indexOf('admission controller') !== -1) {
+                    return 'webhook-errors';
+                }
+            }
+            
+            // Storage device errors
+            if (line.indexOf('Could not find storage instance') !== -1 ||
+                line.indexOf('storage instance for serial') !== -1 ||
+                line.indexOf('createSession') !== -1 ||
+                line.indexOf('failed to create session') !== -1 ||
+                line.indexOf('executeStorageRestAPIRemote') !== -1 ||
+                (line.indexOf('storage device') !== -1 && (line.indexOf('error') !== -1 || line.indexOf('failed') !== -1)) ||
+                (line.indexOf('session id') !== -1 && line.indexOf('failed') !== -1)) {
+                return 'connectivity';
             }
             
             // Connectivity
@@ -3289,7 +3557,7 @@
                 state.currentPod = id;
                 document.querySelectorAll('.pod-item').forEach(item => item.classList.remove('active'));
                 div.classList.add('active');
-                invalidateCache();
+                invalidateCache(true); // Clear expanded contexts when switching pods
                 
                 // Show loading indicator
                 showLoading(`Loading logs for ${name}...`);
@@ -3412,15 +3680,297 @@
                 });
             }
 
+            // Integrate expanded context lines
+            if (state.expandedContexts.size > 0) {
+                const result = [];
+                const seenIdentifiers = new Set(); // Track which logs we've already added
+                const contextIdentifiers = new Set(); // Track all context line identifiers (including target)
+                
+                // First, collect all context line identifiers
+                for (const contextData of state.expandedContexts.values()) {
+                    const contextLines = contextData.lines || contextData; // Support both old and new format
+                    for (const contextLog of contextLines) {
+                        contextIdentifiers.add(getLogIdentifier(contextLog));
+                    }
+                }
+
+                for (let i = 0; i < filtered.length; i++) {
+                    const log = filtered[i];
+                    const identifier = getLogIdentifier(log);
+
+                    // Check if this log has expanded context
+                    if (state.expandedContexts.has(identifier)) {
+                        const contextData = state.expandedContexts.get(identifier);
+                        const contextLines = contextData.lines || contextData; // Support both old and new format
+                        
+                        // Add all context lines (they will appear as context, even if they match the filter)
+                        for (const contextLog of contextLines) {
+                            const contextId = getLogIdentifier(contextLog);
+                            if (!seenIdentifiers.has(contextId)) {
+                                result.push(contextLog);
+                                seenIdentifiers.add(contextId);
+                            }
+                        }
+                    } else {
+                        // Regular filtered log - add it if not already added as part of context
+                        if (!seenIdentifiers.has(identifier) && !contextIdentifiers.has(identifier)) {
+                            result.push(log);
+                            seenIdentifiers.add(identifier);
+                        }
+                    }
+                }
+
+                // Cache the result
+                state.filteredCache = result;
+                return result;
+            }
+
             // Cache the result
             state.filteredCache = filtered;
             return filtered;
         }
 
         // Invalidate cache when filters change
-        function invalidateCache() {
+        function invalidateCache(clearContexts = false) {
             state.filteredCache = null;
             state.errorIndices = [];
+            if (clearContexts) {
+                state.expandedContexts.clear();
+            }
+        }
+
+        // Context expansion helper functions
+        // Get unique identifier for a log entry
+        function getLogIdentifier(log) {
+            return `${log.raw}|${log.source}|${log.timestamp || ''}`;
+        }
+
+        // Get unfiltered logs (same logic as getFilteredLogs but without level/category filters)
+        function getUnfilteredLogs() {
+            let allLogs;
+            if (state.currentPod === 'all') {
+                if (state.disabledContainers.size > 0) {
+                    allLogs = [];
+                    for (const [containerName, containerLogs] of Object.entries(state.logs)) {
+                        if (state.currentCluster) {
+                            const clusterPrefix = state.currentCluster + '/';
+                            if (!containerName.startsWith(clusterPrefix)) {
+                                continue;
+                            }
+                        }
+                        if (!state.disabledContainers.has(containerName)) {
+                            allLogs = allLogs.concat(containerLogs);
+                        }
+                    }
+                } else {
+                    if (state.currentCluster) {
+                        allLogs = [];
+                        const clusterPrefix = state.currentCluster + '/';
+                        for (const [containerName, containerLogs] of Object.entries(state.logs)) {
+                            if (containerName.startsWith(clusterPrefix)) {
+                                allLogs = allLogs.concat(containerLogs);
+                            }
+                        }
+                    } else {
+                        allLogs = state.allLogs;
+                    }
+                }
+            } else {
+                allLogs = state.logs[state.currentPod] || [];
+            }
+
+            // Apply only search and time filters (not level/category)
+            let filtered = allLogs;
+
+            if (state.searchTerm) {
+                const term = state.searchTerm.toLowerCase();
+                filtered = filtered.filter(log => 
+                    log.raw.toLowerCase().includes(term)
+                );
+            }
+
+            if (state.timeFilter.enabled && (state.timeFilter.startDate || state.timeFilter.endDate)) {
+                filtered = filtered.filter(log => {
+                    if (!log.timestampDate) return false;
+                    const logDate = log.timestampDate;
+                    let startDateTime = null;
+                    let endDateTime = null;
+                    
+                    if (state.timeFilter.startDate) {
+                        startDateTime = new Date(state.timeFilter.startDate);
+                        if (state.timeFilter.startTime) {
+                            const [hours, minutes] = state.timeFilter.startTime.split(':');
+                            startDateTime.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0, 0);
+                        } else {
+                            startDateTime.setHours(0, 0, 0, 0);
+                        }
+                    }
+                    
+                    if (state.timeFilter.endDate) {
+                        endDateTime = new Date(state.timeFilter.endDate);
+                        if (state.timeFilter.endTime) {
+                            const [hours, minutes] = state.timeFilter.endTime.split(':');
+                            endDateTime.setHours(parseInt(hours, 10), parseInt(minutes, 10), 59, 999);
+                        } else {
+                            endDateTime.setHours(23, 59, 59, 999);
+                        }
+                    }
+                    
+                    if (startDateTime && logDate < startDateTime) return false;
+                    if (endDateTime && logDate > endDateTime) return false;
+                    return true;
+                });
+            }
+
+            return filtered;
+        }
+
+        // Expand context around a log entry
+        // direction: 'both' (initial), 'up' (expand upward only), 'down' (expand downward only)
+        function expandContext(logEntry, direction = 'both') {
+            const identifier = getLogIdentifier(logEntry);
+            const contextPerLevel = 20; // Lines before/after per expansion level
+            
+            const unfilteredLogs = getUnfilteredLogs();
+            
+            // Find the log entry in unfiltered logs
+            let targetIndex = -1;
+            for (let i = 0; i < unfilteredLogs.length; i++) {
+                if (getLogIdentifier(unfilteredLogs[i]) === identifier) {
+                    targetIndex = i;
+                    break;
+                }
+            }
+
+            // If not found by identifier, try to find by raw content and source (fallback)
+            if (targetIndex === -1) {
+                for (let i = 0; i < unfilteredLogs.length; i++) {
+                    const unfilteredLog = unfilteredLogs[i];
+                    if (unfilteredLog.raw === logEntry.raw && 
+                        unfilteredLog.source === logEntry.source &&
+                        unfilteredLog.timestamp === logEntry.timestamp) {
+                        targetIndex = i;
+                        break;
+                    }
+                }
+            }
+
+            if (targetIndex === -1) {
+                console.warn('Could not find log entry in unfiltered logs', {
+                    identifier,
+                    raw: logEntry.raw?.substring(0, 100),
+                    source: logEntry.source
+                });
+                return;
+            }
+
+            // Get current expansion if already expanded
+            let currentStartIndex = targetIndex;
+            let currentEndIndex = targetIndex;
+            let currentLevel = 0;
+            
+            if (state.expandedContexts.has(identifier)) {
+                const existing = state.expandedContexts.get(identifier);
+                currentLevel = existing.level || 1;
+                
+                // Use stored indices if available (more reliable than searching)
+                if (existing.startIndex !== undefined && existing.endIndex !== undefined) {
+                    currentStartIndex = existing.startIndex;
+                    currentEndIndex = existing.endIndex;
+                } else {
+                    // Fallback: find indices by searching (for backwards compatibility)
+                    const currentLines = existing.lines || [];
+                    if (currentLines.length > 0) {
+                        const firstLineId = getLogIdentifier(currentLines[0]);
+                        const lastLineId = getLogIdentifier(currentLines[currentLines.length - 1]);
+                        
+                        for (let i = 0; i < unfilteredLogs.length; i++) {
+                            if (getLogIdentifier(unfilteredLogs[i]) === firstLineId) {
+                                currentStartIndex = i;
+                            }
+                            if (getLogIdentifier(unfilteredLogs[i]) === lastLineId) {
+                                currentEndIndex = i;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Calculate new expansion bounds
+            let newStartIndex = currentStartIndex;
+            let newEndIndex = currentEndIndex;
+            
+            if (direction === 'both' || direction === 'up') {
+                // Expand upward
+                newStartIndex = Math.max(0, currentStartIndex - contextPerLevel);
+            }
+            
+            if (direction === 'both' || direction === 'down') {
+                // Expand downward
+                newEndIndex = Math.min(unfilteredLogs.length - 1, currentEndIndex + contextPerLevel);
+            }
+            
+            // Extract lines
+            const rawContextLines = unfilteredLogs.slice(newStartIndex, newEndIndex + 1);
+            const targetIndexInSlice = targetIndex - newStartIndex;
+
+            // Create copies and mark context lines (not the target)
+            const contextLines = rawContextLines.map((log, idx) => {
+                const logCopy = { ...log }; // Shallow copy
+                logCopy._contextIdentifier = identifier; // Store which context this belongs to
+                if (idx !== targetIndexInSlice) {
+                    logCopy._isContextLine = true;
+                } else {
+                    logCopy._isContextTarget = true;
+                }
+                // Mark edges
+                if (idx === 0) {
+                    logCopy._isContextTop = true;
+                }
+                if (idx === rawContextLines.length - 1) {
+                    logCopy._isContextBottom = true;
+                }
+                return logCopy;
+            });
+
+            // Calculate new level (total lines / contextPerLevel, rounded up)
+            const totalLinesBefore = targetIndex - newStartIndex;
+            const totalLinesAfter = newEndIndex - targetIndex;
+            const maxLines = Math.max(totalLinesBefore, totalLinesAfter);
+            const newLevel = Math.ceil(maxLines / contextPerLevel);
+
+            // Store with level and direction info
+            state.expandedContexts.set(identifier, {
+                lines: contextLines,
+                level: newLevel,
+                startIndex: newStartIndex,
+                endIndex: newEndIndex,
+                targetIndex: targetIndex
+            });
+            
+            invalidateCache();
+            renderLogs();
+        }
+
+        // Collapse context for a log entry
+        function collapseContext(logEntry) {
+            const identifier = getLogIdentifier(logEntry);
+            if (state.expandedContexts.has(identifier)) {
+                state.expandedContexts.delete(identifier);
+                invalidateCache();
+                renderLogs();
+            }
+        }
+
+        // Copy log line to clipboard
+        async function copyLogLine(logEntry) {
+            try {
+                const text = `[${logEntry.source}] ${logEntry.raw}`;
+                await navigator.clipboard.writeText(text);
+                // Could show a toast notification here if desired
+            } catch (err) {
+                console.error('Failed to copy log line:', err);
+            }
         }
 
         // Virtual Scrolling: Render only visible logs
@@ -3532,8 +4082,22 @@
 
         // Create a single log element (reusable)
         function createLogElement(log) {
+            // Create wrapper for tooltip positioning
+            const wrapper = document.createElement('div');
+            wrapper.className = 'log-line-wrapper';
+            
             const div = document.createElement('div');
-            div.className = `log-line ${log.level.toLowerCase()}`;
+            let className = `log-line ${log.level.toLowerCase()}`;
+            
+            // Add context line classes if applicable
+            if (log._isContextLine) {
+                className += ' context-line';
+            }
+            if (log._isContextTarget) {
+                className += ' context-target';
+            }
+            
+            div.className = className;
             
             let line = escapeHtml(log.raw);
             
@@ -3550,7 +4114,173 @@
             }
 
             div.innerHTML = `<span class="source">[${displaySource}]</span>${line}`;
-            return div;
+            
+            // Add div to wrapper first (needed for insertBefore to work)
+            wrapper.appendChild(div);
+            
+            // Find which context this line belongs to (if it's a context line)
+            const contextIdentifier = log._contextIdentifier || null;
+            const isContextTop = log._isContextTop || false;
+            const isContextBottom = log._isContextBottom || false;
+            
+            // Add edge controls for context lines at top/bottom
+            if (log._isContextLine && (isContextTop || isContextBottom) && contextIdentifier) {
+                const edgeControls = document.createElement('div');
+                edgeControls.className = 'context-edge-controls';
+                
+                // Get the target log from the context data
+                // The contextIdentifier is the identifier of the target log
+                const contextData = state.expandedContexts.get(contextIdentifier);
+                if (contextData) {
+                    const contextLines = contextData.lines || contextData;
+                    const targetLog = contextLines.find(l => l._isContextTarget);
+                    
+                    if (targetLog) {
+                    let buttonsHtml = '';
+                    if (isContextTop) {
+                        buttonsHtml = `
+                            <button data-action="expand-up" data-context-id="${contextIdentifier}" title="Expand context upward (20 more lines)">
+                                ↑ Expand up
+                            </button>
+                        `;
+                    }
+                    if (isContextBottom) {
+                        buttonsHtml = `
+                            <button data-action="expand-down" data-context-id="${contextIdentifier}" title="Expand context downward (20 more lines)">
+                                ↓ Expand down
+                            </button>
+                        `;
+                    }
+                    buttonsHtml += `
+                        <button class="secondary" data-action="collapse-context" data-context-id="${contextIdentifier}" title="Hide context">
+                            Hide context
+                        </button>
+                    `;
+                    
+                    edgeControls.innerHTML = buttonsHtml;
+                    
+                    // Add click handlers
+                    edgeControls.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        const action = e.target.getAttribute('data-action');
+                        const ctxId = e.target.getAttribute('data-context-id');
+                        
+                        if (!ctxId || !targetLog) return;
+                        
+                        if (action === 'expand-up') {
+                            expandContext(targetLog, 'up');
+                        } else if (action === 'expand-down') {
+                            expandContext(targetLog, 'down');
+                        } else if (action === 'collapse-context') {
+                            collapseContext(targetLog);
+                        }
+                    });
+                    
+                        // Insert edge controls before the line (for top) or after (for bottom)
+                        if (isContextTop) {
+                            wrapper.insertBefore(edgeControls, div);
+                        } else {
+                            wrapper.appendChild(edgeControls);
+                        }
+                    }
+                }
+            }
+            
+            // Add tooltip (only show when filters are active and NOT a context line)
+            // Context lines get their controls at the edges instead
+            if ((state.filterLevel !== 'ALL' || state.categoryFilter) && !log._isContextLine) {
+                const tooltip = document.createElement('div');
+                tooltip.className = 'log-line-tooltip';
+                
+                const identifier = getLogIdentifier(log);
+                const contextData = state.expandedContexts.get(identifier);
+                const isExpanded = !!contextData;
+                
+                let contextButtonHtml = '';
+                if (isExpanded) {
+                    // When expanded, only show collapse option in tooltip (expand is at edges)
+                    contextButtonHtml = `
+                        <button class="context-btn secondary" data-action="collapse" title="Hide context">
+                            Hide context
+                        </button>
+                    `;
+                } else {
+                    contextButtonHtml = `
+                        <button class="context-btn" data-action="expand" title="Show context (20 lines before/after)">
+                            Show context
+                        </button>
+                    `;
+                }
+                
+                tooltip.innerHTML = `
+                    <button class="copy-btn" data-action="copy" title="Copy line to clipboard">Copy</button>
+                    ${contextButtonHtml}
+                `;
+                
+                // Add hover handlers with delay - keep tooltip visible when hovering over it
+                let hoverTimeout = null;
+                let hideTimeout = null;
+                
+                const showTooltip = () => {
+                    if (hideTimeout) {
+                        clearTimeout(hideTimeout);
+                        hideTimeout = null;
+                    }
+                    if (hoverTimeout) return; // Already scheduled
+                    hoverTimeout = setTimeout(() => {
+                        tooltip.classList.add('show');
+                        hoverTimeout = null;
+                    }, 500); // 500ms delay
+                };
+                
+                const hideTooltip = () => {
+                    if (hoverTimeout) {
+                        clearTimeout(hoverTimeout);
+                        hoverTimeout = null;
+                    }
+                    // Small delay before hiding to allow moving to tooltip
+                    hideTimeout = setTimeout(() => {
+                        tooltip.classList.remove('show');
+                        hideTimeout = null;
+                    }, 200);
+                };
+                
+                div.addEventListener('mouseenter', showTooltip);
+                div.addEventListener('mouseleave', hideTooltip);
+                
+                // Keep tooltip visible when hovering over it
+                tooltip.addEventListener('mouseenter', () => {
+                    if (hideTimeout) {
+                        clearTimeout(hideTimeout);
+                        hideTimeout = null;
+                    }
+                    if (!tooltip.classList.contains('show')) {
+                        tooltip.classList.add('show');
+                    }
+                });
+                
+                tooltip.addEventListener('mouseleave', hideTooltip);
+                
+                // Add click handlers
+                tooltip.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    const action = e.target.getAttribute('data-action');
+                    if (action === 'copy') {
+                        await copyLogLine(log);
+                        tooltip.classList.remove('show');
+                    } else if (action === 'expand') {
+                        expandContext(log, 'both');
+                        tooltip.classList.remove('show');
+                    } else if (action === 'collapse') {
+                        collapseContext(log);
+                        tooltip.classList.remove('show');
+                    }
+                });
+                
+                wrapper.appendChild(tooltip);
+            }
+            
+            return wrapper;
         }
 
         // Setup scroll listener for virtual scrolling
@@ -4578,8 +5308,14 @@
                 })
                 .sort((a, b) => {
                     // Sort alphabetically by category name
-                    const nameA = a[0].split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-                    const nameB = b[0].split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                    const getDisplayName = (category) => {
+                        if (category === 'dr-policy-errors') {
+                            return 'DRPolicy Errors';
+                        }
+                        return category.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                    };
+                    const nameA = getDisplayName(a[0]);
+                    const nameB = getDisplayName(b[0]);
                     return nameA.localeCompare(nameB);
                 });
             
@@ -4603,7 +5339,13 @@
             `;
             
             for (const [category, data] of categories) {
-                const categoryName = category.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                // Special handling for specific category display names
+                let categoryName;
+                if (category === 'dr-policy-errors') {
+                    categoryName = 'DRPolicy Errors';
+                } else {
+                    categoryName = category.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                }
                 // Remove cluster prefix from pod names for display
                 const displayPods = clusterPrefix 
                     ? data.pods.map(pod => pod.startsWith(clusterPrefix) ? pod.substring(clusterPrefix.length) : pod)
@@ -5319,17 +6061,128 @@
                         const pvcSelectorMatch = specSection.match(/^\s{4}pvcSelector:\s*\n((?:^\s{6,}.*\n?)+)/m);
                         if (pvcSelectorMatch) {
                             policy.spec.pvcSelector = {};
-                            const matchWorkloadLabelsMatch = pvcSelectorMatch[1].match(/^\s{6}matchWorkloadLabels:\s*\n((?:^\s{8,}.*\n?)+)/m);
+                            const matchWorkloadLabelsMatch = pvcSelectorMatch[1].match(/^\s{6}matchWorkloadLabels:\s*\n((?:^\s{6,}.*\n?)+)/m);
                             if (matchWorkloadLabelsMatch) {
                                 policy.spec.pvcSelector.matchWorkloadLabels = [];
                                 const labelLines = matchWorkloadLabelsMatch[1].split('\n').filter(l => l.trim());
                                 for (const labelLine of labelLines) {
-                                    // Format: "      - app: vpg-1" (8 spaces)
-                                    const labelMatch = labelLine.match(/^\s{8}-\s+(.+)$/);
+                                    // Format: "      - app: vpg-1" (6 spaces for the dash, YAML list item)
+                                    const labelMatch = labelLine.match(/^\s{6}-\s+(.+)$/);
                                     if (labelMatch) {
                                         policy.spec.pvcSelector.matchWorkloadLabels.push(labelMatch[1].trim());
                                     }
                                 }
+                            }
+                            
+                            // Extract matchNamespaces (array under pvcSelector)
+                            const matchNamespacesMatch = pvcSelectorMatch[1].match(/^\s{6}matchNamespaces:\s*\n((?:^\s{8,}.*\n?)+)/m);
+                            if (matchNamespacesMatch) {
+                                policy.spec.pvcSelector.matchNamespaces = [];
+                                const namespaceLines = matchNamespacesMatch[1].split('\n').filter(l => l.trim());
+                                for (const namespaceLine of namespaceLines) {
+                                    // Format: "      - demo-db" (8 spaces)
+                                    const namespaceMatch = namespaceLine.match(/^\s{8}-\s+(.+)$/);
+                                    if (namespaceMatch) {
+                                        policy.spec.pvcSelector.matchNamespaces.push(namespaceMatch[1].trim());
+                                    }
+                                }
+                            }
+                            
+                            // Extract matchPvcs (array under pvcSelector)
+                            const matchPvcsMatch = pvcSelectorMatch[1].match(/^\s{6}matchPvcs:\s*\n((?:^\s{8,}.*\n?)+)/m);
+                            if (matchPvcsMatch) {
+                                policy.spec.pvcSelector.matchPvcs = [];
+                                const pvcLines = matchPvcsMatch[1].split('\n').filter(l => l.trim());
+                                for (const pvcLine of pvcLines) {
+                                    // Format: "      - demo-db-pvc" (8 spaces)
+                                    const pvcMatch = pvcLine.match(/^\s{8}-\s+(.+)$/);
+                                    if (pvcMatch) {
+                                        policy.spec.pvcSelector.matchPvcs.push(pvcMatch[1].trim());
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Extract consistencyGroupName
+                        const consistencyGroupNameMatch = specSection.match(/^\s{4}consistencyGroupName:\s*(.+)$/m);
+                        if (consistencyGroupNameMatch) {
+                            policy.spec.consistencyGroupName = consistencyGroupNameMatch[1].trim();
+                        }
+                        
+                        // Extract readyOrderOfPvcByNamespace (array)
+                        const readyOrderOfPvcByNamespaceMatch = specSection.match(/^\s{4}readyOrderOfPvcByNamespace:\s*\n((?:^\s{6,}.*\n?)+)/m);
+                        if (readyOrderOfPvcByNamespaceMatch) {
+                            policy.spec.readyOrderOfPvcByNamespace = [];
+                            const orderLines = readyOrderOfPvcByNamespaceMatch[1].split('\n').filter(l => l.trim());
+                            for (const orderLine of orderLines) {
+                                // Format: "      - demo-db" (6 spaces)
+                                const orderMatch = orderLine.match(/^\s{6}-\s+(.+)$/);
+                                if (orderMatch) {
+                                    policy.spec.readyOrderOfPvcByNamespace.push(orderMatch[1].trim());
+                                }
+                            }
+                        }
+                        
+                        // Extract readyOrderOfPvcByLabel (array)
+                        const readyOrderOfPvcByLabelMatch = specSection.match(/^\s{4}readyOrderOfPvcByLabel:\s*\n((?:^\s{6,}.*\n?)+)/m);
+                        if (readyOrderOfPvcByLabelMatch) {
+                            policy.spec.readyOrderOfPvcByLabel = [];
+                            const labelOrderLines = readyOrderOfPvcByLabelMatch[1].split('\n').filter(l => l.trim());
+                            for (const labelOrderLine of labelOrderLines) {
+                                // Format: "      - app: sample_app" (6 spaces)
+                                const labelOrderMatch = labelOrderLine.match(/^\s{6}-\s+(.+)$/);
+                                if (labelOrderMatch) {
+                                    policy.spec.readyOrderOfPvcByLabel.push(labelOrderMatch[1].trim());
+                                }
+                            }
+                        }
+                        
+                        // Extract actionsAfterStorageFailover
+                        const actionsAfterStorageFailoverMatch = specSection.match(/^\s{4}actionsAfterStorageFailover:\s*(.+)$/m);
+                        if (actionsAfterStorageFailoverMatch) {
+                            policy.spec.actionsAfterStorageFailover = actionsAfterStorageFailoverMatch[1].trim();
+                        }
+                        
+                        // Extract actionsOnTarget (array with scriptType, configMapRef structure)
+                        const actionsOnTargetMatch = specSection.match(/^\s{4}actionsOnTarget:\s*\n((?:^\s{6,}.*\n?)+)/m);
+                        if (actionsOnTargetMatch) {
+                            policy.spec.actionsOnTarget = [];
+                            const actionLines = actionsOnTargetMatch[1].split('\n');
+                            let currentAction = null;
+                            
+                            for (const actionLine of actionLines) {
+                                // Format: "      - scriptType: shell" (6 spaces)
+                                const scriptTypeMatch = actionLine.match(/^\s{6}-\s+scriptType:\s*(.+)$/);
+                                const configMapRefMatch = actionLine.match(/^\s{8}configMapRef:\s*\n((?:^\s{10,}.*\n?)+)/m);
+                                const configMapNameMatch = actionLine.match(/^\s{10}name:\s*(.+)$/);
+                                
+                                if (scriptTypeMatch) {
+                                    if (currentAction) {
+                                        policy.spec.actionsOnTarget.push(currentAction);
+                                    }
+                                    currentAction = { scriptType: scriptTypeMatch[1].trim() };
+                                } else if (configMapNameMatch && currentAction) {
+                                    if (!currentAction.configMapRef) {
+                                        currentAction.configMapRef = {};
+                                    }
+                                    currentAction.configMapRef.name = configMapNameMatch[1].trim();
+                                } else if (configMapRefMatch) {
+                                    // Handle nested configMapRef structure
+                                    if (!currentAction) {
+                                        currentAction = {};
+                                    }
+                                    if (!currentAction.configMapRef) {
+                                        currentAction.configMapRef = {};
+                                    }
+                                    const nameMatch = configMapRefMatch[1].match(/^\s{10}name:\s*(.+)$/m);
+                                    if (nameMatch) {
+                                        currentAction.configMapRef.name = nameMatch[1].trim();
+                                    }
+                                }
+                            }
+                            
+                            if (currentAction) {
+                                policy.spec.actionsOnTarget.push(currentAction);
                             }
                         }
                     }
@@ -5345,15 +6198,17 @@
                         }
                         
                         // Extract selectedPVCs
-                        const selectedPVCsMatch = statusSection.match(/^\s{4}selectedPVCs:\s*\n((?:^\s{6,}.*\n?)+)/m);
+                        const selectedPVCsMatch = statusSection.match(/^\s{4}selectedPVCs:\s*\n((?:^\s{4,}.*\n?)+)/m);
                         if (selectedPVCsMatch) {
                             policy.status.selectedPVCs = [];
                             const pvcLines = selectedPVCsMatch[1].split('\n');
                             let currentPVC = null;
                             
                             for (const pvcLine of pvcLines) {
-                                const pvcNameMatch = pvcLine.match(/^\s{6}-\s+name:\s*(.+)$/);
-                                const pvcNamespaceMatch = pvcLine.match(/^\s{8}namespace:\s*(.+)$/);
+                                // Format: "    - name: ..." (4 spaces for the dash)
+                                const pvcNameMatch = pvcLine.match(/^\s{4}-\s+name:\s*(.+)$/);
+                                // Format: "      namespace: ..." (6 spaces for nested field)
+                                const pvcNamespaceMatch = pvcLine.match(/^\s{6}namespace:\s*(.+)$/);
                                 
                                 if (pvcNameMatch) {
                                     if (currentPVC) {
@@ -5367,6 +6222,22 @@
                             
                             if (currentPVC) {
                                 policy.status.selectedPVCs.push(currentPVC);
+                            }
+                        }
+                        
+                        // Extract any other status fields (generic parsing for simple key-value pairs)
+                        // This captures fields like conditions, phase, etc. that might exist
+                        const statusLines = statusSection.split('\n');
+                        for (const line of statusLines) {
+                            // Match simple key-value pairs at 4 spaces (not arrays or nested objects)
+                            const simpleFieldMatch = line.match(/^\s{4}([a-zA-Z][a-zA-Z0-9]*):\s*(.+)$/);
+                            if (simpleFieldMatch && simpleFieldMatch[1] !== 'status' && simpleFieldMatch[1] !== 'selectedPVCs') {
+                                const key = simpleFieldMatch[1];
+                                const value = simpleFieldMatch[2].trim();
+                                // Only add if not already set (avoid overwriting parsed fields)
+                                if (!policy.status[key]) {
+                                    policy.status[key] = value;
+                                }
                             }
                         }
                     }
@@ -5504,6 +6375,99 @@
             invalidateCache();
             renderLogs();
             updateCategoryFilterDisplay(null);
+        };
+
+        // View logs for a DRPolicy and its replications
+        window.viewDRPolicyLogs = async function(policyName) {
+            // Show loading indicator
+            showLoading(`Loading logs for DRPolicy: ${policyName}...`);
+            
+            // Allow UI to update
+            await new Promise(resolve => setTimeout(resolve, 50));
+            
+            // Collect all replication names for this policy across all clusters
+            const replicationNames = new Set();
+            replicationNames.add(policyName); // Include the policy name itself
+            
+            if (typeof state.clusterContext === 'object' && state.clusterContext !== null) {
+                for (const clusterName of Object.keys(state.clusterContext)) {
+                    const replications = findReplicationsForPolicy(clusterName, policyName);
+                    replications.forEach(repl => {
+                        replicationNames.add(repl.name);
+                        // Also add parts of the replication name for better matching
+                        // replication--vpg-1--volume-name -> add "vpg-1" and "volume-name"
+                        const parts = repl.name.split('--');
+                        parts.forEach(part => {
+                            if (part && part !== 'replication') {
+                                replicationNames.add(part);
+                            }
+                        });
+                    });
+                }
+            } else if (typeof state.clusterContext === 'string') {
+                const replications = findReplicationsForPolicy('primary-cluster', policyName);
+                replications.forEach(repl => {
+                    replicationNames.add(repl.name);
+                    const parts = repl.name.split('--');
+                    parts.forEach(part => {
+                        if (part && part !== 'replication') {
+                            replicationNames.add(part);
+                        }
+                    });
+                });
+            }
+            
+            // Create search terms - use the policy name and replication pattern
+            // Search for: policyName, replication--policyName--, and individual replication names
+            const searchTerms = Array.from(replicationNames);
+            // Build a regex-like search that matches any of these terms
+            // We'll search for the policy name and the replication pattern
+            const searchPattern = `(${policyName}|replication--${policyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}--)`;
+            
+            // Switch to Logs tab
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            
+            const logsTab = document.querySelector('[data-tab="logs"]');
+            const logsContent = document.querySelector('[data-content="logs"]');
+            logsTab.classList.add('active');
+            logsContent.classList.add('active');
+            
+            // Set search term to the policy name (logs will be filtered to show matches)
+            // We'll search for the policy name which should match both the policy and replications
+            const searchInput = document.getElementById('searchInput');
+            if (searchInput) {
+                searchInput.value = policyName;
+            }
+            state.searchTerm = policyName;
+            
+            // Set filter to show all levels
+            state.filterLevel = 'ALL';
+            document.querySelectorAll('[data-level]').forEach(b => b.classList.remove('active'));
+            const levelBtn = document.querySelector('[data-level="ALL"]');
+            if (levelBtn) levelBtn.classList.add('active');
+            
+            // Clear category filter
+            state.categoryFilter = null;
+            updateCategoryFilterDisplay(null);
+            
+            // Set pod to 'all' to search across all pods
+            state.currentPod = 'all';
+            
+            // Invalidate cache and re-render
+            invalidateCache();
+            if (typeof updatePodList === 'function') {
+                updatePodList(); // Update pod list to show correct active state
+            }
+            await renderLogs();
+            
+            // Scroll to top of logs
+            if (logContent) {
+                logContent.scrollTop = 0;
+            }
+            
+            // Hide loading after rendering is complete
+            hideLoading();
         };
 
         // Navigate to specific pod logs (called from Pod Health table)
@@ -6638,6 +7602,13 @@ ${escapeHtml(trimmedYAML)}
                     totalReplications += replications.length;
                 }
                 
+                // Detect if replications are only on one cluster (for multi-cluster policies)
+                const clustersWithReplications = Object.entries(replicationCounts).filter(([_, count]) => count > 0);
+                const hasSingleClusterReplication = isMultiCluster && clustersWithReplications.length === 1;
+                const missingReplicationClusters = hasSingleClusterReplication 
+                    ? policyClusters.filter(cluster => replicationCounts[cluster] === 0)
+                    : [];
+                
                 html += `
                     <div class="config-section" style="margin-bottom: 30px; border: 1px solid var(--border-color); border-radius: 4px; padding: 15px;">
                         <div class="config-section-header" style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
@@ -6645,8 +7616,10 @@ ${escapeHtml(trimmedYAML)}
                                 <span style="font-size: 16px; font-weight: bold; color: var(--accent-blue);">${policyName}</span>
                                 ${isMultiCluster ? '<span style="color: var(--success-green); font-size: 12px; margin-left: 10px;">(Multi-cluster)</span>' : ''}
                                 ${totalReplications > 0 ? `<span style="color: var(--text-secondary); font-size: 12px; margin-left: 10px;">(${totalReplications} replication${totalReplications > 1 ? 's' : ''})</span>` : ''}
+                                ${hasSingleClusterReplication ? `<span class="warning-badge" style="margin-left: 10px; font-size: 11px;">⚠️ Replications only on one cluster (missing on ${missingReplicationClusters.join(', ')})</span>` : ''}
                             </div>
                             <div style="display: flex; gap: 8px;">
+                                <button onclick="viewDRPolicyLogs('${policyName}')" style="padding: 6px 12px; background: var(--accent-purple, #9333ea); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'" title="View logs related to this DRPolicy and its replications">📋 Logs</button>
                                 ${totalReplications > 0 ? `<button onclick="showDRPolicyReplications('${isMultiCluster ? 'all' : policyClusters[0]}', '${policyName}')" style="padding: 6px 12px; background: var(--accent-green); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">🔄 Replications (${totalReplications})</button>` : ''}
                                 <button onclick="showDRPolicyYAML('${policyClusters[0]}', '${policyName}')" style="padding: 6px 12px; background: var(--accent-blue); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">📄 View YAML</button>
                             </div>
@@ -6663,12 +7636,16 @@ ${escapeHtml(trimmedYAML)}
                         const policy = policiesByName[cluster];
                         const replications = findReplicationsForPolicy(cluster, policyName);
                         const replicationCount = replications.length;
+                        const hasWarning = hasSingleClusterReplication && replicationCount === 0;
+                        const borderColor = hasWarning ? 'var(--warning-yellow)' : 'var(--border-color)';
+                        const bgColor = hasWarning ? 'rgba(255, 193, 7, 0.1)' : 'var(--bg-tertiary)';
                         
                         html += `
-                            <div style="border: 1px solid var(--border-color); border-radius: 4px; padding: 12px; background: var(--bg-tertiary);">
+                            <div style="border: 1px solid ${borderColor}; border-radius: 4px; padding: 12px; background: ${bgColor};">
                                 <div style="font-weight: bold; color: var(--accent-blue); margin-bottom: 10px; font-size: 14px; display: flex; justify-content: space-between; align-items: center;">
-                                    <span>${cluster}${replicationCount > 0 ? ` <span style="color: var(--text-secondary); font-size: 11px;">(${replicationCount} repl${replicationCount > 1 ? 's' : ''})</span>` : ''}</span>
+                                    <span>${cluster}${replicationCount > 0 ? ` <span style="color: var(--text-secondary); font-size: 11px;">(${replicationCount} repl${replicationCount > 1 ? 's' : ''})</span>` : ''}${hasWarning ? ` <span class="warning-badge" style="font-size: 10px; margin-left: 5px;">⚠️ No replications</span>` : ''}</span>
                                     <div style="display: flex; gap: 6px;">
+                                        <button onclick="viewDRPolicyLogs('${policyName}')" style="padding: 4px 8px; background: var(--accent-purple, #9333ea); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'" title="View logs related to this DRPolicy">📋 Logs</button>
                                         ${replicationCount > 0 ? `<button onclick="showDRPolicyReplications('${cluster}', '${policyName}')" style="padding: 4px 8px; background: var(--accent-green); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">🔄 Repl</button>` : ''}
                                         <button onclick="showDRPolicyYAML('${cluster}', '${policyName}')" style="padding: 4px 8px; background: var(--accent-blue); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">📄 YAML</button>
                                     </div>
@@ -6690,6 +7667,7 @@ ${escapeHtml(trimmedYAML)}
                             <div style="font-weight: bold; color: var(--accent-blue); margin-bottom: 10px; font-size: 14px; display: flex; justify-content: space-between; align-items: center;">
                                 <span>${policyClusters[0]}${replicationCount > 0 ? ` <span style="color: var(--text-secondary); font-size: 12px;">(${replicationCount} replication${replicationCount > 1 ? 's' : ''})</span>` : ''}</span>
                                 <div style="display: flex; gap: 8px;">
+                                    <button onclick="viewDRPolicyLogs('${policyName}')" style="padding: 6px 12px; background: var(--accent-purple, #9333ea); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'" title="View logs related to this DRPolicy and its replications">📋 View Logs</button>
                                     ${replicationCount > 0 ? `<button onclick="showDRPolicyReplications('${policyClusters[0]}', '${policyName}')" style="padding: 6px 12px; background: var(--accent-green); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">🔄 Replications (${replicationCount})</button>` : ''}
                                     <button onclick="showDRPolicyYAML('${policyClusters[0]}', '${policyName}')" style="padding: 6px 12px; background: var(--accent-blue); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">📄 View YAML</button>
                                 </div>
@@ -6756,8 +7734,53 @@ ${escapeHtml(trimmedYAML)}
             if (policy.spec.secondaryJournalId !== undefined) {
                 html += `<div style="margin-bottom: 4px;"><strong>Secondary Journal ID:</strong> ${formatValue(policy.spec.secondaryJournalId)}</div>`;
             }
-            if (policy.spec.pvcSelector && policy.spec.pvcSelector.matchWorkloadLabels) {
-                html += `<div style="margin-bottom: 4px;"><strong>PVC Selector (Workload Labels):</strong> ${formatValue(policy.spec.pvcSelector.matchWorkloadLabels)}</div>`;
+            if (policy.spec.pvcSelector) {
+                if (policy.spec.pvcSelector.matchWorkloadLabels && policy.spec.pvcSelector.matchWorkloadLabels.length > 0) {
+                    html += `<div style="margin-bottom: 4px;"><strong>PVC Selector (Workload Labels):</strong> ${formatValue(policy.spec.pvcSelector.matchWorkloadLabels)}</div>`;
+                }
+                if (policy.spec.pvcSelector.matchNamespaces && policy.spec.pvcSelector.matchNamespaces.length > 0) {
+                    html += `<div style="margin-bottom: 4px;"><strong>PVC Selector (Match Namespaces):</strong> ${formatValue(policy.spec.pvcSelector.matchNamespaces)}</div>`;
+                }
+                if (policy.spec.pvcSelector.matchPvcs && policy.spec.pvcSelector.matchPvcs.length > 0) {
+                    html += `<div style="margin-bottom: 4px;"><strong>PVC Selector (Match PVCs):</strong> ${formatValue(policy.spec.pvcSelector.matchPvcs)}</div>`;
+                }
+            }
+            if (policy.spec.consistencyGroupName) {
+                html += `<div style="margin-bottom: 4px;"><strong>Consistency Group Name:</strong> ${formatValue(policy.spec.consistencyGroupName)}</div>`;
+            }
+            if (policy.spec.readyOrderOfPvcByNamespace && policy.spec.readyOrderOfPvcByNamespace.length > 0) {
+                html += `<div style="margin-bottom: 4px;"><strong>Ready Order of PVC by Namespace:</strong> ${formatValue(policy.spec.readyOrderOfPvcByNamespace)}</div>`;
+            }
+            if (policy.spec.readyOrderOfPvcByLabel && policy.spec.readyOrderOfPvcByLabel.length > 0) {
+                html += `<div style="margin-bottom: 4px;"><strong>Ready Order of PVC by Label:</strong> ${formatValue(policy.spec.readyOrderOfPvcByLabel)}</div>`;
+            }
+            if (policy.spec.actionsAfterStorageFailover) {
+                html += `<div style="margin-bottom: 4px;"><strong>Actions After Storage Failover:</strong> ${formatValue(policy.spec.actionsAfterStorageFailover)}</div>`;
+            }
+            if (policy.spec.actionsOnTarget && policy.spec.actionsOnTarget.length > 0) {
+                html += `<div style="margin-bottom: 4px;"><strong>Actions On Target:</strong></div>`;
+                html += '<div style="margin-left: 15px;">';
+                policy.spec.actionsOnTarget.forEach((action, idx) => {
+                    html += `<div style="margin-bottom: 2px; font-size: 11px;">• Action ${idx + 1}:`;
+                    if (action.scriptType) {
+                        html += ` Script Type: ${action.scriptType}`;
+                    }
+                    if (action.configMapRef && action.configMapRef.name) {
+                        html += ` ConfigMap: ${action.configMapRef.name}`;
+                    }
+                    html += `</div>`;
+                });
+                html += '</div>';
+            }
+            
+            // Display any other spec fields that were parsed but not explicitly handled above
+            const handledSpecFields = new Set(['consistencyRequired', 'desiredState', 'replicationAttribute', 'replicationMode', 
+                'drSource', 'drTarget', 'primaryJournalId', 'secondaryJournalId', 'pvcSelector', 'consistencyGroupName', 
+                'readyOrderOfPvcByNamespace', 'readyOrderOfPvcByLabel', 'actionsAfterStorageFailover', 'actionsOnTarget']);
+            for (const [key, value] of Object.entries(policy.spec)) {
+                if (!handledSpecFields.has(key) && value !== null && value !== undefined) {
+                    html += `<div style="margin-bottom: 4px;"><strong>${key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1').trim()}:</strong> ${formatValue(value)}</div>`;
+                }
             }
             
             html += '</div>';
@@ -6783,6 +7806,13 @@ ${escapeHtml(trimmedYAML)}
                         html += `<div style="margin-bottom: 2px; font-size: 11px;">• ${pvc.name}${pvc.namespace ? ` (${pvc.namespace})` : ''}</div>`;
                     });
                     html += '</div>';
+                }
+                
+                // Display any other status fields that were parsed
+                for (const [key, value] of Object.entries(policy.status)) {
+                    if (key !== 'status' && key !== 'selectedPVCs' && value !== null && value !== undefined) {
+                        html += `<div style="margin-bottom: 4px;"><strong>${key.charAt(0).toUpperCase() + key.slice(1)}:</strong> ${formatValue(value)}</div>`;
+                    }
                 }
                 
                 html += '</div>';
@@ -6863,13 +7893,7 @@ ${escapeHtml(trimmedYAML)}
 
         // Setup Navigation
         function setupNavigation() {
-            document.getElementById('prevError').addEventListener('click', () => {
-                navigateToError('prev');
-            });
-
-            document.getElementById('nextError').addEventListener('click', () => {
-                navigateToError('next');
-            });
+            // Navigation buttons removed
         }
 
         // Build error index for fast navigation
