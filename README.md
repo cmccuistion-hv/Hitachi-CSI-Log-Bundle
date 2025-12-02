@@ -10,7 +10,6 @@ A comprehensive log collection tool for Hitachi CSI drivers running in Kubernete
 - 🏗️ **Full Context**: Captures cluster version, node info, manifests, events, and resource descriptions
 - 🔄 **Multi-Cluster Support**: Collect logs from both primary and secondary clusters for DR-Operator environments
 - 🛡️ **DR-Operator Integration**: Automatically detects and collects DR-Operator logs and Custom Resources
-- ⚡ **Parallel Processing**: Bash script supports parallel log collection (optional)
 - 🗜️ **Auto-Compression**: Creates zip archives automatically (optional)
 - 🛡️ **Robust**: Handles timeouts, errors gracefully, and provides fallback mechanisms
 - 💻 **Cross-Platform**: Both Bash and PowerShell versions available
@@ -24,7 +23,6 @@ A comprehensive log collection tool for Hitachi CSI drivers running in Kubernete
 - Bash 4.0+
 - `kubectl` or `oc` binary (can be local or in PATH)
 - Valid kubeconfig with access to the cluster
-- Optional: `parallel` for faster collection
 - Optional: `zip` or `python3` for compression
 
 ### PowerShell Script (`hspclogbundlecollectionscript.ps1`)
@@ -81,11 +79,6 @@ A comprehensive log collection tool for Hitachi CSI drivers running in Kubernete
 ./hspclogbundlecollectionscript.sh -d /tmp/my-logs
 ```
 
-**Parallel collection with 8 jobs**:
-```bash
-./hspclogbundlecollectionscript.sh -j 8
-```
-
 **Skip compression**:
 ```bash
 ./hspclogbundlecollectionscript.sh --no-compress
@@ -98,7 +91,7 @@ A comprehensive log collection tool for Hitachi CSI drivers running in Kubernete
 
 **Combined options**:
 ```bash
-./hspclogbundlecollectionscript.sh --kubeconfig ./kubeconfig --oc -n hspc-system -j 8
+./hspclogbundlecollectionscript.sh --kubeconfig ./kubeconfig --oc -n hspc-system
 ```
 ##### Note: If error such as below is seen
 ```
@@ -140,11 +133,6 @@ sed -i 's/\r$//' hspclogbundlecollectionscript.sh
 .\hspclogbundlecollectionscript.ps1 -Dir C:\temp\my-logs
 ```
 
-**Parallel jobs** (note: PowerShell script uses sequential collection by default for reliability):
-```powershell
-.\hspclogbundlecollectionscript.ps1 -Jobs 8
-```
-
 **Skip compression**:
 ```powershell
 .\hspclogbundlecollectionscript.ps1 -NoCompress
@@ -170,7 +158,6 @@ sed -i 's/\r$//' hspclogbundlecollectionscript.sh
 | `--oc` | Force use of OpenShift `oc` binary | Auto-detect |
 | `-n, --namespace <ns>` | Target namespace | Auto-discover from HSPC CR |
 | `-d, --dir <path>` | Output directory | `./hspc-csi-logs-YYYYMMDD-HHMMSS` |
-| `-j, --jobs <N>` | Number of parallel jobs | `4` |
 | `--kubeconfig-primary <file>` | Path to primary cluster kubeconfig (for multi-cluster) | - |
 | `--kubeconfig-secondary <file>` | Path to secondary cluster kubeconfig (for multi-cluster) | - |
 | `--no-compress` | Skip zip creation | Creates zip |
@@ -184,7 +171,6 @@ sed -i 's/\r$//' hspclogbundlecollectionscript.sh
 | `-Oc` | Force use of OpenShift `oc` binary | Auto-detect |
 | `-Namespace <ns>` | Target namespace | Auto-discover from HSPC CR |
 | `-Dir <path>` | Output directory | `.\hspc-csi-logs-YYYYMMDD-HHMMSS` |
-| `-Jobs <N>` | Number of parallel jobs | `4` (sequential by default) |
 | `-KubeconfigPrimary <file>` | Path to primary cluster kubeconfig (for multi-cluster) | - |
 | `-KubeconfigSecondary <file>` | Path to secondary cluster kubeconfig (for multi-cluster) | - |
 | `-NoCompress` | Skip zip creation | Creates zip |
@@ -262,7 +248,6 @@ Contains comprehensive cluster and application information:
 - Try specifying the namespace manually with `-n` or `-Namespace`
 
 ### Collection is slow
-- Use the `-j` option (bash) to increase parallel jobs
 - Check network connectivity to the cluster
 - Some pods may have very large logs (limited to 200MB per container)
 

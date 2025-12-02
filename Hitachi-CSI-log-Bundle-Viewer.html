@@ -1515,7 +1515,7 @@
           ============================================ */
 
         // Version Configuration
-        const VERSION = '1.6.0';
+        const VERSION = '1.6.1';
         const GITHUB_REPO = 'cmccuistion-hv/Hitachi-CSI-Log-Bundle';
         const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`;
         const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
@@ -1596,7 +1596,7 @@
                 'configuration-errors': { count: 0, pods: [], description: 'Configuration errors - secrets, parameters, invalid volume IDs, missing resources (HSPC0x0000c03b, 0x0000c002, 0x0000101e)' },
                 'unsupported-features': { count: 0, pods: [], description: 'Unsupported features or operations (code = Unimplemented)' },
                 'volume-operations': { count: 0, pods: [], description: 'Volume provision/attach/detach/expand/resize failures' },
-                'snapshot-operations': { count: 0, pods: [], description: 'Snapshot create/delete failures, copy groups, snapshot class config (HSPC0x0000c037, 0x0000b00a)' },
+                'snapshot-operations': { count: 0, pods: [], description: 'Snapshot create/delete failures, copy groups, volumeSnapshotClass config (HSPC0x0000c037, 0x0000b00a)' },
                 'storage-feature-errors': { count: 0, pods: [], description: 'Storage feature incompatibility errors (HSPC0x00001022, SSB codes)' },
                 'permission-errors': { count: 0, pods: [], description: 'Permission and authentication errors - resource groups, credentials, access denied (HSPC0x00001007, 0x00001025, 0x00001001)' },
                 'rest-api-failures': { count: 0, pods: [], description: 'REST API job failures from storage system (COMMON_RESTAPI, REMOTE_RESTAPI, EXTERNAL_RESTAPI)' },
@@ -1972,7 +1972,7 @@
                 'configuration-errors': { count: 0, pods: [], description: 'Configuration errors - secrets, parameters, invalid volume IDs, missing resources (HSPC0x0000c03b, 0x0000c002, 0x0000101e)' },
                 'unsupported-features': { count: 0, pods: [], description: 'Unsupported features or operations (code = Unimplemented)' },
                 'volume-operations': { count: 0, pods: [], description: 'Volume provision/attach/detach/expand/resize failures' },
-                'snapshot-operations': { count: 0, pods: [], description: 'Snapshot create/delete failures, copy groups, snapshot class config (HSPC0x0000c037, 0x0000b00a)' },
+                'snapshot-operations': { count: 0, pods: [], description: 'Snapshot create/delete failures, copy groups, volumeSnapshotClass config (HSPC0x0000c037, 0x0000b00a)' },
                 'storage-feature-errors': { count: 0, pods: [], description: 'Storage feature incompatibility errors (HSPC0x00001022, SSB codes)' },
                 'permission-errors': { count: 0, pods: [], description: 'Permission and authentication errors - resource groups, credentials, access denied (HSPC0x00001007, 0x00001025, 0x00001001)' },
                 'rest-api-failures': { count: 0, pods: [], description: 'REST API job failures from storage system (COMMON_RESTAPI, REMOTE_RESTAPI, EXTERNAL_RESTAPI)' },
@@ -7614,8 +7614,7 @@ ${escapeHtml(trimmedYAML)}
                         <div class="config-section-header" style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
                             <div>
                                 <span style="font-size: 16px; font-weight: bold; color: var(--accent-blue);">${policyName}</span>
-                                ${isMultiCluster ? '<span style="color: var(--success-green); font-size: 12px; margin-left: 10px;">(Multi-cluster)</span>' : ''}
-                                ${totalReplications > 0 ? `<span style="color: var(--text-secondary); font-size: 12px; margin-left: 10px;">(${totalReplications} replication${totalReplications > 1 ? 's' : ''})</span>` : ''}
+                                <span style="color: var(--text-secondary); font-size: 12px; margin-left: 10px;">(${totalReplications} replication${totalReplications !== 1 ? 's' : ''} found)</span>
                                 ${hasSingleClusterReplication ? `<span class="warning-badge" style="margin-left: 10px; font-size: 11px;">⚠️ Replications only on one cluster (missing on ${missingReplicationClusters.join(', ')})</span>` : ''}
                             </div>
                             <div style="display: flex; gap: 8px;">
@@ -7643,7 +7642,7 @@ ${escapeHtml(trimmedYAML)}
                         html += `
                             <div style="border: 1px solid ${borderColor}; border-radius: 4px; padding: 12px; background: ${bgColor};">
                                 <div style="font-weight: bold; color: var(--accent-blue); margin-bottom: 10px; font-size: 14px; display: flex; justify-content: space-between; align-items: center;">
-                                    <span>${cluster}${replicationCount > 0 ? ` <span style="color: var(--text-secondary); font-size: 11px;">(${replicationCount} repl${replicationCount > 1 ? 's' : ''})</span>` : ''}${hasWarning ? ` <span class="warning-badge" style="font-size: 10px; margin-left: 5px;">⚠️ No replications</span>` : ''}</span>
+                                    <span>${cluster} <span style="color: var(--text-secondary); font-size: 11px;">(${replicationCount} repl${replicationCount !== 1 ? 's' : ''} found)</span>${hasWarning ? ` <span class="warning-badge" style="font-size: 10px; margin-left: 5px;">⚠️ No replications</span>` : ''}</span>
                                     <div style="display: flex; gap: 6px;">
                                         <button onclick="viewDRPolicyLogs('${policyName}')" style="padding: 4px 8px; background: var(--accent-purple, #9333ea); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'" title="View logs related to this DRPolicy">📋 Logs</button>
                                         ${replicationCount > 0 ? `<button onclick="showDRPolicyReplications('${cluster}', '${policyName}')" style="padding: 4px 8px; background: var(--accent-green); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">🔄 Repl</button>` : ''}
@@ -7665,7 +7664,7 @@ ${escapeHtml(trimmedYAML)}
                     html += `
                         <div style="margin-bottom: 10px;">
                             <div style="font-weight: bold; color: var(--accent-blue); margin-bottom: 10px; font-size: 14px; display: flex; justify-content: space-between; align-items: center;">
-                                <span>${policyClusters[0]}${replicationCount > 0 ? ` <span style="color: var(--text-secondary); font-size: 12px;">(${replicationCount} replication${replicationCount > 1 ? 's' : ''})</span>` : ''}</span>
+                                <span>${policyClusters[0]} <span style="color: var(--text-secondary); font-size: 12px;">(${replicationCount} replication${replicationCount !== 1 ? 's' : ''} found)</span></span>
                                 <div style="display: flex; gap: 8px;">
                                     <button onclick="viewDRPolicyLogs('${policyName}')" style="padding: 6px 12px; background: var(--accent-purple, #9333ea); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'" title="View logs related to this DRPolicy and its replications">📋 View Logs</button>
                                     ${replicationCount > 0 ? `<button onclick="showDRPolicyReplications('${policyClusters[0]}', '${policyName}')" style="padding: 6px 12px; background: var(--accent-green); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">🔄 Replications (${replicationCount})</button>` : ''}

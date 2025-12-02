@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Hitachi HSPC CSI Driver Log Bundle Collector v1.5.1
+# Hitachi HSPC CSI Driver Log Bundle Collector v1.6.1
 # - --kubeconfig is completely optional (uses default or $KUBECONFIG if present)
 # - Full OpenShift auto-detect + smart fallback to ./oc
 # - All manifests with status (deployments, daemonsets, replicasets)
@@ -8,13 +8,12 @@
 # - Pod ownership chain
 # - Events, describes, version, HSPC CR
 # - Python zip fallback (always works)
-# - Parallel collection
 # =============================================================================
 
 set -euo pipefail
 
 # Script version
-SCRIPT_VERSION="1.6.0"
+SCRIPT_VERSION="1.6.1-sh"
 
 # Helper functions
 log() { echo "[$(date +'%H:%M:%S')] $*"; }
@@ -39,7 +38,6 @@ KUBECONFIG_SECONDARY=""
 KUBECONFIG_ARG=""  # For backward compatibility
 NAMESPACE=""
 OUTPUT_DIR="./hspc-csi-logs-$(date +%Y%m%d-%H%M%S)"
-PARALLEL_JOBS=4
 COMPRESS=true
 TIMEOUT_SEC=300
 
@@ -160,38 +158,38 @@ collect_pod_logs() {
 
 collect_custom_resources() {
     local kubeconfig="$1"
-    local output_file="$2"
+    # Write to stdout so it gets captured by the subshell's redirection
     
     # Collect LocalVolumes
-    echo -e "\n=== LocalVolumes ===" >> "$output_file"
-    if KUBE_WITH_CONFIG "$kubeconfig" get localvolume --all-namespaces -o yaml >> "$output_file" 2>/dev/null; then
-        : # Success
+    echo -e "\n=== LocalVolumes ==="
+    if KUBE_WITH_CONFIG "$kubeconfig" get localvolume --all-namespaces -o yaml 2>/dev/null; then
+        : # Success - output goes to stdout
     else
-        echo "No LocalVolumes found" >> "$output_file"
+        echo "No LocalVolumes found"
     fi
     
     # Collect RemoteVolumes
-    echo -e "\n=== RemoteVolumes ===" >> "$output_file"
-    if KUBE_WITH_CONFIG "$kubeconfig" get remotevolume --all-namespaces -o yaml >> "$output_file" 2>/dev/null; then
+    echo -e "\n=== RemoteVolumes ==="
+    if KUBE_WITH_CONFIG "$kubeconfig" get remotevolume --all-namespaces -o yaml 2>/dev/null; then
         : # Success
     else
-        echo "No RemoteVolumes found" >> "$output_file"
+        echo "No RemoteVolumes found"
     fi
     
     # Collect Replications
-    echo -e "\n=== Replications ===" >> "$output_file"
-    if KUBE_WITH_CONFIG "$kubeconfig" get replication --all-namespaces -o yaml >> "$output_file" 2>/dev/null; then
+    echo -e "\n=== Replications ==="
+    if KUBE_WITH_CONFIG "$kubeconfig" get replication --all-namespaces -o yaml 2>/dev/null; then
         : # Success
     else
-        echo "No Replications found" >> "$output_file"
+        echo "No Replications found"
     fi
     
     # Collect DRPolicies (optional)
-    echo -e "\n=== DRPolicies ===" >> "$output_file"
-    if KUBE_WITH_CONFIG "$kubeconfig" get drpolicy --all-namespaces -o yaml >> "$output_file" 2>/dev/null; then
+    echo -e "\n=== DRPolicies ==="
+    if KUBE_WITH_CONFIG "$kubeconfig" get drpolicy --all-namespaces -o yaml 2>/dev/null; then
         : # Success
     else
-        echo "No DRPolicies found" >> "$output_file"
+        echo "No DRPolicies found"
     fi
 }
 
@@ -259,19 +257,10 @@ collect_from_cluster() {
         mapfile -t PODS < <(get_pods "$kubeconfig" "$cluster_namespace" 2>/dev/null || true)
         if [[ ${#PODS[@]} -gt 0 ]]; then
             log "Found ${#PODS[@]} HSPC pods on $cluster_name: ${PODS[*]}"
-            
-            if command -v parallel >/dev/null 2>&1; then
-                log "Collecting HSPC logs in parallel ($PARALLEL_JOBS jobs)..."
-                for pod in "${PODS[@]}"; do
-                    collect_pod_logs "$kubeconfig" "$pod" "$cluster_namespace" "$cluster_output_dir" &
-                done
-                wait
-            else
-                log "Collecting HSPC logs sequentially..."
-                for pod in "${PODS[@]}"; do
-                    collect_pod_logs "$kubeconfig" "$pod" "$cluster_namespace" "$cluster_output_dir"
-                done
-            fi
+            log "Collecting HSPC logs..."
+            for pod in "${PODS[@]}"; do
+                collect_pod_logs "$kubeconfig" "$pod" "$cluster_namespace" "$cluster_output_dir"
+            done
         else
             log "No HSPC pods found on $cluster_name"
         fi
@@ -367,7 +356,7 @@ collect_from_cluster() {
             
             # Collect Custom Resources if DR-Operator detected
             if [[ "$dr_operator_detected" == "true" ]]; then
-                collect_custom_resources "$kubeconfig" "$context_file"
+                collect_custom_resources "$kubeconfig"
             fi
             
             if [[ ${#PODS[@]} -gt 0 ]]; then
@@ -417,7 +406,6 @@ while [[ $# -gt 0 ]]; do
         --oc)         [[ -n "$OC_CMD" ]] || die "oc binary not found"; CMD="$OC_CMD"; shift ;;
         -n|--namespace) NAMESPACE="$2"; shift 2 ;;
         -d|--dir)     OUTPUT_DIR="$2"; shift 2 ;;
-        -j|--jobs)    PARALLEL_JOBS="$2"; shift 2 ;;
         --no-compress) COMPRESS=false; shift ;;
         -h|--help)
             cat <<'EOF'
@@ -428,7 +416,6 @@ Usage: ./hspclogbundlecollectionscript.sh [options]
   --oc                         Force ./oc or system oc
   -n <ns>                      Force namespace
   -d <dir>                     Output dir
-  -j <N>                       Parallel jobs
   --no-compress                No zip
 EOF
             exit 0
