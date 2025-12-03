@@ -187,6 +187,8 @@ The script creates a directory (and optionally a zip file) containing:
 
 This repository includes an HTML-based log viewer (`Hitachi-CSI-log-Bundle-Viewer.html`) for comprehensive analysis of collected logs. Simply open the HTML file in a browser and load your log bundle directory.
 
+**Note**: The viewer supports both ZIP files and folders. Drag and drop ZIP files directly, or use the browse buttons to select either ZIP files or folders.
+
 ### Viewer Features
 
 - **Multi-Cluster Support**: View and filter logs, health data, and configuration by cluster when using multi-cluster bundles
@@ -194,6 +196,10 @@ This repository includes an HTML-based log viewer (`Hitachi-CSI-log-Bundle-Viewe
   - Side-by-side comparison of matching DR Policies across clusters
   - View associated replications with formatted and YAML views
   - Comprehensive display of all DRPolicy spec and status fields
+  - **Enhanced Replication Display**: Full visibility into all Replication resource fields including:
+    - Spec fields: `replicationType`, `desiredPairState`, `replicationAttribute`, `storageClassName`
+    - Status fields: `volumeStatus`, `deviceGroupName`, `copyGroupName`, `copyPairName`, and all replication pair details
+    - Color-coded status indicators and visual highlighting for easy identification
   - Intelligent alerts for replication issues (e.g., replications missing on one cluster)
   - Quick log filtering by DRPolicy name
 - **Advanced Filtering**: Filter logs by level, category, time range, and search terms

@@ -14,6 +14,8 @@ ocbak
 kubeconfig
 kubeconfig.*
 *.kubeconfig
+*-kubeconfig
+*kubeconfig
 
 # Windows Zone Identifier Files
 *:Zone.Identifier
