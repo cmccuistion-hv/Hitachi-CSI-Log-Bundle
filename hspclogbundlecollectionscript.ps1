@@ -226,6 +226,14 @@ function Get-CustomResources {
     } catch {
         "No DRPolicies found" | Out-File -Encoding utf8 -Append $OutputFile
     }
+    
+    # Collect ReplicationGroups
+    "`n=== ReplicationGroups ===" | Out-File -Encoding utf8 -Append $OutputFile
+    try {
+        Invoke-KubeWithConfig -KubeconfigPath $KubeconfigPath get replicationgroup --all-namespaces -o yaml | Out-File -Encoding utf8 -Append $OutputFile
+    } catch {
+        "No ReplicationGroups found" | Out-File -Encoding utf8 -Append $OutputFile
+    }
 }
 
 function Get-FromCluster {
@@ -483,6 +491,37 @@ function Get-FromCluster {
         }
     }
     
+    # Extract DR operator and HRPC versions from deployments (if DR operator detected)
+    $drOperatorVersion = ""
+    $hrpcVersion = ""
+    if ($drOperatorDetected) {
+        $ErrorActionPreference = 'SilentlyContinue'
+        $null = Invoke-KubeWithConfig -KubeconfigPath $KubeconfigPath get namespace $REPLICATION_NAMESPACE 2>$null
+        $ErrorActionPreference = 'Stop'
+        if ($?) {
+            # Get all deployments in the replication operator namespace
+            $ErrorActionPreference = 'SilentlyContinue'
+            $deploymentsYaml = Invoke-KubeWithConfig -KubeconfigPath $KubeconfigPath get deploy -n $REPLICATION_NAMESPACE -o yaml 2>$null
+            $ErrorActionPreference = 'Stop'
+            
+            if ($deploymentsYaml) {
+                # Extract DR operator version (look for hv-dr-operator image)
+                $drImageMatch = $deploymentsYaml | Select-String -Pattern "image:\s*.*hv-dr-operator:([^\s`"']+)" | Select-Object -First 1
+                if ($drImageMatch) {
+                    $drOperatorVersion = $drImageMatch.Matches[0].Groups[1].Value
+                    Log "DR-Operator version detected: $drOperatorVersion"
+                }
+                
+                # Extract HRPC version (look for hspc-replication-operator image)
+                $hrpcImageMatch = $deploymentsYaml | Select-String -Pattern "image:\s*.*hspc-replication-operator:([^\s`"']+)" | Select-Object -First 1
+                if ($hrpcImageMatch) {
+                    $hrpcVersion = $hrpcImageMatch.Matches[0].Groups[1].Value
+                    Log "HRPC version detected: $hrpcVersion"
+                }
+            }
+        }
+    }
+    
     # Generate cluster context
     $contextFile = Join-Path $clusterOutputDir "cluster-context.txt"
     
@@ -566,6 +605,30 @@ function Get-FromCluster {
     # Collect Custom Resources if DR-Operator detected
     if ($drOperatorDetected) {
         Get-CustomResources -KubeconfigPath $KubeconfigPath -OutputFile $contextFile
+        
+        # Capture DR operator and HRPC deployments from replication operator namespace
+        $ErrorActionPreference = 'SilentlyContinue'
+        $null = Invoke-KubeWithConfig -KubeconfigPath $KubeconfigPath get namespace $REPLICATION_NAMESPACE 2>$null
+        $ErrorActionPreference = 'Stop'
+        if ($?) {
+            "`n=== HRPC Replication Operator Deployments ===" | Out-File -Encoding utf8 -Append $contextFile
+            try {
+                Invoke-KubeWithConfig -KubeconfigPath $KubeconfigPath get deploy -n $REPLICATION_NAMESPACE -o yaml | Out-File -Encoding utf8 -Append $contextFile
+            } catch {
+                "No deployments found in $REPLICATION_NAMESPACE" | Out-File -Encoding utf8 -Append $contextFile
+            }
+        }
+    }
+    
+    # Add version information if available
+    if ($drOperatorVersion -or $hrpcVersion) {
+        "`n=== DR Operator and HRPC Versions ===" | Out-File -Encoding utf8 -Append $contextFile
+        if ($drOperatorVersion) {
+            "DR-Operator Version: $drOperatorVersion" | Out-File -Encoding utf8 -Append $contextFile
+        }
+        if ($hrpcVersion) {
+            "HRPC Version: $hrpcVersion" | Out-File -Encoding utf8 -Append $contextFile
+        }
     }
     
     if ($pods.Count -gt 0) {

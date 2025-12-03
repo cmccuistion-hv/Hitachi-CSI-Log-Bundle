@@ -191,6 +191,14 @@ collect_custom_resources() {
     else
         echo "No DRPolicies found"
     fi
+    
+    # Collect ReplicationGroups
+    echo -e "\n=== ReplicationGroups ==="
+    if KUBE_WITH_CONFIG "$kubeconfig" get replicationgroup --all-namespaces -o yaml 2>/dev/null; then
+        : # Success
+    else
+        echo "No ReplicationGroups found"
+    fi
 }
 
 collect_from_cluster() {
@@ -301,9 +309,46 @@ collect_from_cluster() {
         fi
     fi
     
+    # Extract DR operator and HRPC versions from deployments (if DR operator detected)
+    local dr_operator_version=""
+    local hrpc_version=""
+    if [[ "$dr_operator_detected" == "true" ]] && KUBE_WITH_CONFIG "$kubeconfig" get namespace "$REPLICATION_NAMESPACE" >/dev/null 2>&1; then
+        # Get all deployments in the replication operator namespace
+        local deployments_yaml
+        deployments_yaml=$(KUBE_WITH_CONFIG "$kubeconfig" get deploy -n "$REPLICATION_NAMESPACE" -o yaml 2>/dev/null)
+        
+        if [[ -n "$deployments_yaml" ]]; then
+            # Extract DR operator version (look for hv-dr-operator image)
+            local dr_image
+            dr_image=$(echo "$deployments_yaml" | grep -E "image:\s*.*hv-dr-operator:" | head -1 | sed -E 's/.*image:\s*[^:]*:([^[:space:]]+).*/\1/' | tr -d '"' | tr -d "'")
+            if [[ -n "$dr_image" ]]; then
+                dr_operator_version="$dr_image"
+                log "DR-Operator version detected: $dr_operator_version"
+            fi
+            
+            # Extract HRPC version (look for hspc-replication-operator image)
+            local hrpc_image
+            hrpc_image=$(echo "$deployments_yaml" | grep -E "image:\s*.*hspc-replication-operator:" | head -1 | sed -E 's/.*image:\s*[^:]*:([^[:space:]]+).*/\1/' | tr -d '"' | tr -d "'")
+            if [[ -n "$hrpc_image" ]]; then
+                hrpc_version="$hrpc_image"
+                log "HRPC version detected: $hrpc_version"
+            fi
+        fi
+    fi
+    
     # Generate cluster context (always, even if there were errors)
     local context_file="$cluster_output_dir/cluster-context.txt"
     log "Generating cluster-context.txt for $cluster_name..."
+    
+    # Helper function to run version command with the appropriate tool (oc or kubectl)
+    local version_cmd
+    version_cmd() {
+        if [[ -n "$kubeconfig" ]]; then
+            "$cluster_cmd" --kubeconfig="$kubeconfig" "$@"
+        else
+            "$cluster_cmd" "$@"
+        fi
+    }
     
     # Use a subshell with set +e to prevent early exit on errors
     (
@@ -314,14 +359,15 @@ collect_from_cluster() {
         echo "Cluster: $cluster_name"
         
         echo -e "\n=== Cluster Version ==="
-        KUBE_WITH_CONFIG "$kubeconfig" version 2>>"$cluster_output_dir/errors.log"
+        version_cmd version 2>>"$cluster_output_dir/errors.log"
         
         echo -e "\n=== Orchestration Platform ==="
         local line_count
         line_count=$(KUBE_WITH_CONFIG "$kubeconfig" api-resources --api-group=route.openshift.io 2>/dev/null | wc -l)
         if [[ $line_count -gt 1 ]]; then
             echo "Platform: OpenShift"
-            KUBE_WITH_CONFIG "$kubeconfig" version -o json 2>/dev/null | grep -E '"gitVersion"|"platform"' || true
+            # Output full JSON (like PowerShell script) to preserve structure and get correct OpenShift version
+            version_cmd version -o json 2>/dev/null || true
         else
             echo "Platform: Kubernetes"
         fi
@@ -357,6 +403,23 @@ collect_from_cluster() {
             # Collect Custom Resources if DR-Operator detected
             if [[ "$dr_operator_detected" == "true" ]]; then
                 collect_custom_resources "$kubeconfig"
+                
+                # Capture DR operator and HRPC deployments from replication operator namespace
+                if KUBE_WITH_CONFIG "$kubeconfig" get namespace "$REPLICATION_NAMESPACE" >/dev/null 2>&1; then
+                    echo -e "\n=== HRPC Replication Operator Deployments ==="
+                    KUBE_WITH_CONFIG "$kubeconfig" get deploy -n "$REPLICATION_NAMESPACE" -o yaml 2>/dev/null || echo "No deployments found in $REPLICATION_NAMESPACE"
+                fi
+            fi
+            
+            # Add version information if available
+            if [[ -n "$dr_operator_version" ]] || [[ -n "$hrpc_version" ]]; then
+                echo -e "\n=== DR Operator and HRPC Versions ==="
+                if [[ -n "$dr_operator_version" ]]; then
+                    echo "DR-Operator Version: $dr_operator_version"
+                fi
+                if [[ -n "$hrpc_version" ]]; then
+                    echo "HRPC Version: $hrpc_version"
+                fi
             fi
             
             if [[ ${#PODS[@]} -gt 0 ]]; then

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HSPC CSI Log Bundle Viewer</title>
+    <title>Hitachi CSI Log Bundle Viewer</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         * {
@@ -202,7 +202,8 @@
             background: #005a9e;
         }
 
-        #fileInput {
+        #fileInput,
+        #folderInput {
             display: none;
         }
 
@@ -1289,10 +1290,14 @@
         <div class="drop-zone" id="dropZone">
             <div class="drop-zone-content">
                 <div class="drop-icon">📦</div>
-                <h2>Drop Your HSPC Log Bundle Here</h2>
-                <p>Drag and drop a folder or ZIP file containing HSPC CSI logs</p>
-                <label for="fileInput" class="file-input-label">Or Click to Browse</label>
-                <input type="file" id="fileInput" webkitdirectory directory multiple>
+                <h2>Drop Your Hitachi CSI Log Bundle Here</h2>
+                <p>Drag and drop a ZIP file, or use the buttons below to browse</p>
+                <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 16px;">
+                    <label for="fileInput" class="file-input-label">Browse ZIP File</label>
+                    <input type="file" id="fileInput" accept=".zip">
+                    <label for="folderInput" class="file-input-label">Browse Folder</label>
+                    <input type="file" id="folderInput" webkitdirectory directory multiple>
+                </div>
             </div>
         </div>
 
@@ -1360,6 +1365,14 @@
                     <div class="stat-item">
                         <span class="stat-label">HSPCC Version</span>
                         <span class="stat-value info" id="hspccVersion">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">HRPC Version</span>
+                        <span class="stat-value info" id="hrpcVersion">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">DR-Operator Version</span>
+                        <span class="stat-value info" id="drOperatorVersion">-</span>
                     </div>
                     <div class="stat-item">
                         <span class="stat-label">Git Commit</span>
@@ -1614,6 +1627,7 @@
         // DOM Elements
         const dropZone = document.getElementById('dropZone');
         const fileInput = document.getElementById('fileInput');
+        const folderInput = document.getElementById('folderInput');
         const loading = document.getElementById('loading');
         const logContent = document.getElementById('logContent');
         const healthContent = document.getElementById('healthContent');
@@ -1726,32 +1740,122 @@
                 e.preventDefault();
                 dropZone.classList.remove('dragging');
                 
-                const items = e.dataTransfer.items;
-                if (items) {
-                    await handleDroppedItems(items);
+                const files = Array.from(e.dataTransfer.files);
+                
+                if (files.length > 0) {
+                    showLoading();
+                    
+                    // Only accept ZIP files via drag and drop
+                    if (files.length === 1 && files[0].name.toLowerCase().endsWith('.zip')) {
+                        await handleZipFile(files[0]);
+                    } else {
+                        // Not a ZIP file - show message
+                        hideLoading();
+                        alert('Drag and drop only supports ZIP files. Please use the "Browse Folder" button to select a folder, or drag and drop a ZIP file.');
+                    }
                 }
             });
         }
 
-        // Handle Dropped Items
-        async function handleDroppedItems(items) {
-            showLoading();
-            
-            const files = [];
-            for (let i = 0; i < items.length; i++) {
-                const item = items[i];
-                if (item.kind === 'file') {
-                    const file = item.getAsFile();
-                    if (file.name.endsWith('.zip')) {
-                        await handleZipFile(file);
-                        return;
+        // Traverse directory to get all files
+        async function traverseDirectory(entry, fileList, basePath) {
+            try {
+                if (entry.isFile) {
+                    return new Promise((resolve, reject) => {
+                        entry.file((file) => {
+                            try {
+                                // Set webkitRelativePath on the file object
+                                const relativePath = basePath ? `${basePath}/${file.name}` : file.name;
+                                Object.defineProperty(file, 'webkitRelativePath', {
+                                    value: relativePath,
+                                    writable: true,
+                                    enumerable: true,
+                                    configurable: true
+                                });
+                                fileList.push(file);
+                                resolve();
+                            } catch (error) {
+                                console.error('Error processing file:', error);
+                                reject(error);
+                            }
+                        }, (error) => {
+                            console.error('Error reading file entry:', error);
+                            reject(error);
+                        });
+                    });
+                } else if (entry.isDirectory) {
+                    console.log('Traversing directory:', entry.name, 'basePath:', basePath);
+                    const dirReader = entry.createReader();
+                    const entries = await new Promise((resolve, reject) => {
+                        const entries = [];
+                        let hasError = false;
+                        let isResolved = false;
+                        
+                        // Add timeout to prevent infinite hanging
+                        const timeout = setTimeout(() => {
+                            if (!isResolved && !hasError) {
+                                hasError = true;
+                                isResolved = true;
+                                console.error('Directory traversal timeout');
+                                reject(new Error('Directory traversal timed out'));
+                            }
+                        }, 10000); // 10 second timeout
+                        
+                        const readEntries = () => {
+                            if (hasError || isResolved) return;
+                            try {
+                                dirReader.readEntries((results) => {
+                                    if (hasError || isResolved) return;
+                                    try {
+                                        if (results.length === 0) {
+                                            if (!isResolved) {
+                                                isResolved = true;
+                                                clearTimeout(timeout);
+                                                resolve(entries);
+                                            }
+                                        } else {
+                                            entries.push(...results);
+                                            readEntries();
+                                        }
+                                    } catch (err) {
+                                        if (!hasError && !isResolved) {
+                                            hasError = true;
+                                            isResolved = true;
+                                            clearTimeout(timeout);
+                                            console.error('Error processing directory entries:', err);
+                                            reject(err);
+                                        }
+                                    }
+                                }, (error) => {
+                                    if (!hasError && !isResolved) {
+                                        hasError = true;
+                                        isResolved = true;
+                                        clearTimeout(timeout);
+                                        console.error('Error reading directory entries:', error);
+                                        reject(error);
+                                    }
+                                });
+                            } catch (err) {
+                                if (!hasError && !isResolved) {
+                                    hasError = true;
+                                    isResolved = true;
+                                    clearTimeout(timeout);
+                                    console.error('Error calling readEntries:', err);
+                                    reject(err);
+                                }
+                            }
+                        };
+                        readEntries();
+                    });
+                    
+                    const currentPath = basePath ? `${basePath}/${entry.name}` : entry.name;
+                    for (const subEntry of entries) {
+                        await traverseDirectory(subEntry, fileList, currentPath);
                     }
-                    files.push(file);
                 }
-            }
-            
-            if (files.length > 0) {
-                await processFiles(files);
+            } catch (error) {
+                console.error('Error in traverseDirectory:', error);
+                throw error;
             }
         }
 
@@ -1761,6 +1865,20 @@
                 const files = Array.from(e.target.files);
                 if (files.length > 0) {
                     showLoading();
+                    // ZIP file input - should only have ZIP files
+                    if (files.length === 1 && files[0].name.toLowerCase().endsWith('.zip')) {
+                        await handleZipFile(files[0]);
+                    } else {
+                        await processFiles(files);
+                    }
+                }
+            });
+            
+            folderInput.addEventListener('change', async (e) => {
+                const files = Array.from(e.target.files);
+                if (files.length > 0) {
+                    showLoading();
+                    // Folder input - always process as folder
                     await processFiles(files);
                 }
             });
@@ -1846,6 +1964,7 @@
 
         // Process Files
         async function processFiles(files) {
+            console.log('processFiles called with', files.length, 'files');
             const fileContents = [];
             
             // Try to extract bundle name from folder path
@@ -1858,6 +1977,7 @@
             }
             
             for (const file of files) {
+                console.log('Checking file:', file.name, 'webkitRelativePath:', file.webkitRelativePath);
                 if ((file.name.endsWith('.log') && file.name !== 'errors.log') || file.name.includes('cluster-context')) {
                     const content = await file.text();
                     
@@ -2945,7 +3065,7 @@
                 // Extract platform-specific version and detect specific platforms
                 // These can override the generic "Kubernetes" platform
                 if (!versionSet) {
-                    // OpenShift version from openshiftVersion field (if present)
+                    // OpenShift version from openshiftVersion field (if present - this is the server version)
                     if (line.indexOf('"openshiftVersion"') !== -1) {
                         const match = line.match(/"openshiftVersion"\s*:\s*"([^"]+)"/);
                         if (match) {
@@ -3364,15 +3484,20 @@
                 // Extract platform version based on platform type
                 // For OpenShift, prioritize OpenShift-specific version sources
                 if (platform === 'OpenShift') {
-                    // First try to find openshiftVersion in JSON
+                    // First try to find openshiftVersion in JSON (most reliable - this is the OpenShift server version)
                     const openshiftVersionMatch = clusterContext.match(/"openshiftVersion"\s*:\s*"([^"]+)"/);
                     if (openshiftVersionMatch) {
                         platformVersion = openshiftVersionMatch[1].trim();
                     } else {
-                        // Fall back to Server Version (which is OpenShift version)
+                        // Fall back to Server Version from Cluster Version section (human-readable output)
+                        // When using 'oc version', Server Version shows the OpenShift server version
                         const serverVersionMatch = clusterContext.match(/Server Version:\s*(\S+)/);
                         if (serverVersionMatch) {
-                            platformVersion = serverVersionMatch[1].trim();
+                            const serverVer = serverVersionMatch[1].trim();
+                            // Only use if it looks like an OpenShift version (starts with number, not "v1.")
+                            if (/^\d+\.\d+/.test(serverVer)) {
+                                platformVersion = serverVer;
+                            }
                         }
                     }
                 } else {
@@ -3421,6 +3546,8 @@
             let goVersion = state.stats.goVersion;
             let nodeCount = state.stats.nodeCount;
             let collectionScriptVersion = state.stats.collectionScriptVersion;
+            let hrpcVersion = '-';
+            let drOperatorVersion = '-';
             
             if (clusterContextForVersions) {
                 const lines = clusterContextForVersions.split('\n');
@@ -3440,6 +3567,37 @@
                     } else if (line.includes('Collection Script Version') && collectionScriptVersion === '-') {
                         const match = line.match(/Collection Script Version:\s*(.+)/);
                         if (match) collectionScriptVersion = match[1].trim();
+                    } else if (line.includes('HRPC Version:') && hrpcVersion === '-') {
+                        const match = line.match(/HRPC Version:\s*(.+)/);
+                        if (match) hrpcVersion = match[1].trim();
+                    } else if (line.includes('DR-Operator Version:') && drOperatorVersion === '-') {
+                        const match = line.match(/DR-Operator Version:\s*(.+)/);
+                        if (match) drOperatorVersion = match[1].trim();
+                    }
+                }
+                
+                // If versions not found in version section, try extracting from deployment yamls
+                if (hrpcVersion === '-' || drOperatorVersion === '-') {
+                    // Look for HRPC Replication Operator Deployments section
+                    const deploymentsSectionMatch = clusterContextForVersions.match(/===\s+HRPC Replication Operator Deployments\s+===\n([\s\S]*?)(?:\n===|$)/);
+                    if (deploymentsSectionMatch) {
+                        const deploymentsYaml = deploymentsSectionMatch[1];
+                        
+                        // Extract HRPC version from hspc-replication-operator image
+                        if (hrpcVersion === '-') {
+                            const hrpcImageMatch = deploymentsYaml.match(/image:\s*[^:]*hspc-replication-operator:([^\s"'`]+)/);
+                            if (hrpcImageMatch) {
+                                hrpcVersion = hrpcImageMatch[1].trim();
+                            }
+                        }
+                        
+                        // Extract DR operator version from hv-dr-operator image
+                        if (drOperatorVersion === '-') {
+                            const drImageMatch = deploymentsYaml.match(/image:\s*[^:]*hv-dr-operator:([^\s"'`]+)/);
+                            if (drImageMatch) {
+                                drOperatorVersion = drImageMatch[1].trim();
+                            }
+                        }
                     }
                 }
                 
@@ -3452,6 +3610,8 @@
             
             document.getElementById('hspcVersion').textContent = hspcVersion;
             document.getElementById('hspccVersion').textContent = hspccVersion;
+            document.getElementById('hrpcVersion').textContent = hrpcVersion;
+            document.getElementById('drOperatorVersion').textContent = drOperatorVersion;
             document.getElementById('gitCommit').textContent = gitCommit;
             document.getElementById('goVersion').textContent = goVersion;
             document.getElementById('nodeCount').textContent = nodeCount;
@@ -6665,6 +6825,9 @@
                 
                 const storageClassNameMatch = specSection.match(/^\s{4}storageClassName:\s*(.+)$/m);
                 if (storageClassNameMatch) replication.spec.storageClassName = storageClassNameMatch[1].trim();
+                
+                const replicationTypeMatch = specSection.match(/^\s{4}replicationType:\s*(.+)$/m);
+                if (replicationTypeMatch) replication.spec.replicationType = replicationTypeMatch[1].trim();
             }
             
             // Extract status
@@ -6700,6 +6863,11 @@
                     const remoteStorageDeviceMatch = pairSection.match(/^\s{6}remoteStorageDeviceId:\s*"(.+)"$/m);
                     const secondaryVolumeIdMatch = pairSection.match(/^\s{6}secondaryVolumeId:\s*(.+)$/m);
                     const secondaryVolumeNicknameMatch = pairSection.match(/^\s{6}secondaryVolumeNickname:\s*(.+)$/m);
+                    const replicationTypeMatch = pairSection.match(/^\s{6}replicationType:\s*(.+)$/m);
+                    const volumeStatusMatch = pairSection.match(/^\s{6}volumeStatus:\s*(.+)$/m);
+                    const deviceGroupNameMatch = pairSection.match(/^\s{6}deviceGroupName:\s*(.+)$/m);
+                    const copyGroupNameMatch = pairSection.match(/^\s{6}copyGroupName:\s*(.+)$/m);
+                    const copyPairNameMatch = pairSection.match(/^\s{6}copyPairName:\s*(.+)$/m);
                     
                     if (localSerialMatch) replication.status.replicationPair.localSerialNumber = parseInt(localSerialMatch[1].trim(), 10) || 0;
                     if (localStorageDeviceMatch) replication.status.replicationPair.localStorageDeviceId = localStorageDeviceMatch[1].trim();
@@ -6709,6 +6877,11 @@
                     if (remoteStorageDeviceMatch) replication.status.replicationPair.remoteStorageDeviceId = remoteStorageDeviceMatch[1].trim();
                     if (secondaryVolumeIdMatch) replication.status.replicationPair.secondaryVolumeId = parseInt(secondaryVolumeIdMatch[1].trim(), 10) || 0;
                     if (secondaryVolumeNicknameMatch) replication.status.replicationPair.secondaryVolumeNickname = secondaryVolumeNicknameMatch[1].trim();
+                    if (replicationTypeMatch) replication.status.replicationPair.replicationType = replicationTypeMatch[1].trim();
+                    if (volumeStatusMatch) replication.status.replicationPair.volumeStatus = volumeStatusMatch[1].trim();
+                    if (deviceGroupNameMatch) replication.status.replicationPair.deviceGroupName = deviceGroupNameMatch[1].trim();
+                    if (copyGroupNameMatch) replication.status.replicationPair.copyGroupName = copyGroupNameMatch[1].trim();
+                    if (copyPairNameMatch) replication.status.replicationPair.copyPairName = copyPairNameMatch[1].trim();
                 }
             }
             
@@ -6732,6 +6905,9 @@
             if (primary.spec.storageClassName !== secondary.spec.storageClassName) {
                 diffs['spec.storageClassName'] = { primary: primary.spec.storageClassName, secondary: secondary.spec.storageClassName };
             }
+            if (primary.spec.replicationType !== secondary.spec.replicationType) {
+                diffs['spec.replicationType'] = { primary: primary.spec.replicationType, secondary: secondary.spec.replicationType };
+            }
             
             // Compare status
             if (primary.status && secondary.status) {
@@ -6754,7 +6930,8 @@
                     const pair1 = primary.status.replicationPair;
                     const pair2 = secondary.status.replicationPair;
                     const pairFields = ['localSerialNumber', 'localStorageDeviceId', 'primaryVolumeId', 'primaryVolumeNickname', 
-                                       'remoteSerialNumber', 'remoteStorageDeviceId', 'secondaryVolumeId', 'secondaryVolumeNickname'];
+                                       'remoteSerialNumber', 'remoteStorageDeviceId', 'secondaryVolumeId', 'secondaryVolumeNickname',
+                                       'replicationType', 'volumeStatus', 'deviceGroupName', 'copyGroupName', 'copyPairName'];
                     pairFields.forEach(field => {
                         if (pair1[field] !== pair2[field]) {
                             diffs[`status.replicationPair.${field}`] = { primary: pair1[field], secondary: pair2[field] };
@@ -6808,6 +6985,13 @@
             html += `<div style="margin-bottom: 4px;"><strong>PVC Name:</strong> ${highlightDiff('spec.persistentVolumeClaimName', formatValue(replication.spec.persistentVolumeClaimName))}</div>`;
             html += `<div style="margin-bottom: 4px;"><strong>Replication Attribute:</strong> <span style="color: var(--info-blue);">${highlightDiff('spec.replicationAttribute', formatValue(replication.spec.replicationAttribute))}</span></div>`;
             
+            // Replication Type - NEW FIELD (highlighted)
+            const replicationTypeValue = formatValue(replication.spec.replicationType);
+            const replicationTypeDisplay = replication.spec.replicationType ? 
+                `<span style="background: rgba(76, 175, 80, 0.2); padding: 2px 4px; border-radius: 3px; border: 1px solid rgba(76, 175, 80, 0.4); font-weight: 500;">${highlightDiff('spec.replicationType', replicationTypeValue)}</span>` :
+                replicationTypeValue;
+            html += `<div style="margin-bottom: 4px;"><strong>Replication Type:</strong> ${replicationTypeDisplay}</div>`;
+            
             // Storage Class with tooltip
             const storageClassName = replication.spec.storageClassName;
             const scValue = formatValue(storageClassName);
@@ -6855,6 +7039,8 @@
             html += '<div style="margin-left: 15px; font-size: 11px;">';
             if (replication.status && replication.status.replicationPair) {
                 const pair = replication.status.replicationPair;
+                
+                // Existing fields
                 html += `<div style="margin-bottom: 2px;"><strong>Local Serial Number:</strong> ${highlightDiff('status.replicationPair.localSerialNumber', formatValue(pair.localSerialNumber, true))}</div>`;
                 html += `<div style="margin-bottom: 2px;"><strong>Local Storage Device ID:</strong> ${highlightDiff('status.replicationPair.localStorageDeviceId', formatValue(pair.localStorageDeviceId, true))}</div>`;
                 html += `<div style="margin-bottom: 2px;"><strong>Primary Volume ID:</strong> ${highlightDiff('status.replicationPair.primaryVolumeId', formatValue(pair.primaryVolumeId, true))}</div>`;
@@ -6862,7 +7048,43 @@
                 html += `<div style="margin-bottom: 2px;"><strong>Remote Serial Number:</strong> ${highlightDiff('status.replicationPair.remoteSerialNumber', formatValue(pair.remoteSerialNumber, true))}</div>`;
                 html += `<div style="margin-bottom: 2px;"><strong>Remote Storage Device ID:</strong> ${highlightDiff('status.replicationPair.remoteStorageDeviceId', formatValue(pair.remoteStorageDeviceId, true))}</div>`;
                 html += `<div style="margin-bottom: 2px;"><strong>Secondary Volume ID:</strong> ${highlightDiff('status.replicationPair.secondaryVolumeId', formatValue(pair.secondaryVolumeId, true))}</div>`;
-                html += `<div style="margin-bottom: 0;"><strong>Secondary Volume Nickname:</strong> ${highlightDiff('status.replicationPair.secondaryVolumeNickname', formatValue(pair.secondaryVolumeNickname, true))}</div>`;
+                html += `<div style="margin-bottom: 2px;"><strong>Secondary Volume Nickname:</strong> ${highlightDiff('status.replicationPair.secondaryVolumeNickname', formatValue(pair.secondaryVolumeNickname, true))}</div>`;
+                
+                // NEW FIELDS - highlighted with green background
+                const newFieldStyle = 'background: rgba(76, 175, 80, 0.2); padding: 2px 4px; border-radius: 3px; border: 1px solid rgba(76, 175, 80, 0.4); font-weight: 500;';
+                
+                const replicationTypeValue = formatValue(pair.replicationType, true);
+                const replicationTypeDisplay = pair.replicationType ? 
+                    `<span style="${newFieldStyle}">${highlightDiff('status.replicationPair.replicationType', replicationTypeValue)}</span>` :
+                    replicationTypeValue;
+                html += `<div style="margin-bottom: 2px;"><strong>Replication Type:</strong> ${replicationTypeDisplay}</div>`;
+                
+                const volumeStatusValue = formatValue(pair.volumeStatus, true);
+                const volumeStatusColor = pair.volumeStatus === 'PAIR' ? 'var(--success-green)' : 
+                                        pair.volumeStatus === 'PSUS' ? 'var(--warning-yellow)' : 
+                                        'var(--text-primary)';
+                const volumeStatusDisplay = pair.volumeStatus ? 
+                    `<span style="${newFieldStyle}"><span style="color: ${volumeStatusColor};">${highlightDiff('status.replicationPair.volumeStatus', volumeStatusValue)}</span></span>` :
+                    volumeStatusValue;
+                html += `<div style="margin-bottom: 2px;"><strong>Volume Status:</strong> ${volumeStatusDisplay}</div>`;
+                
+                const deviceGroupNameValue = formatValue(pair.deviceGroupName, true);
+                const deviceGroupNameDisplay = pair.deviceGroupName ? 
+                    `<span style="${newFieldStyle}">${highlightDiff('status.replicationPair.deviceGroupName', deviceGroupNameValue)}</span>` :
+                    deviceGroupNameValue;
+                html += `<div style="margin-bottom: 2px;"><strong>Device Group Name:</strong> ${deviceGroupNameDisplay}</div>`;
+                
+                const copyGroupNameValue = formatValue(pair.copyGroupName, true);
+                const copyGroupNameDisplay = pair.copyGroupName ? 
+                    `<span style="${newFieldStyle}">${highlightDiff('status.replicationPair.copyGroupName', copyGroupNameValue)}</span>` :
+                    copyGroupNameValue;
+                html += `<div style="margin-bottom: 2px;"><strong>Copy Group Name:</strong> ${copyGroupNameDisplay}</div>`;
+                
+                const copyPairNameValue = formatValue(pair.copyPairName, true);
+                const copyPairNameDisplay = pair.copyPairName ? 
+                    `<span style="${newFieldStyle}">${highlightDiff('status.replicationPair.copyPairName', copyPairNameValue)}</span>` :
+                    copyPairNameValue;
+                html += `<div style="margin-bottom: 0;"><strong>Copy Pair Name:</strong> ${copyPairNameDisplay}</div>`;
             } else {
                 html += `<div style="margin-bottom: 2px; color: var(--text-secondary);">No replication pair data</div>`;
             }
