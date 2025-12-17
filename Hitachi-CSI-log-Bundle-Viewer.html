@@ -1359,6 +1359,10 @@
                         <span class="stat-value info" id="platformVersion">-</span>
                     </div>
                     <div class="stat-item">
+                        <span class="stat-label">HSPC Operator Version</span>
+                        <span class="stat-value info" id="hspcOperatorVersion">-</span>
+                    </div>
+                    <div class="stat-item">
                         <span class="stat-label">HSPC Version</span>
                         <span class="stat-value info" id="hspcVersion">-</span>
                     </div>
@@ -1504,31 +1508,9 @@
     </div>
 
     <script>
-        /* ============================================
-           PERFORMANCE OPTIMIZATIONS IMPLEMENTED:
-           ============================================
-           1. Virtual Scrolling: Only renders visible log lines (~70 at a time)
-              instead of all logs, dramatically reducing DOM nodes
-           
-           2. Result Caching: Filters/search results are cached and only
-              recalculated when filters change
-           
-           3. Chunked Rendering: For datasets <10K, uses DocumentFragment
-              and chunked rendering to avoid blocking the UI
-           
-           4. Optimized Parsing: Pre-compiled regex, indexOf instead of
-              includes(), reduced function calls
-           
-           5. Error Index: Pre-built index of error positions for instant
-              navigation without DOM queries
-           
-           6. Debounced Search: 300ms debounce prevents excessive filtering
-           
-          7. RequestAnimationFrame: Smooth chunked rendering and scroll updates
-          ============================================ */
 
         // Version Configuration
-        const VERSION = '1.6.2';
+        const VERSION = '1.6.3';
         const GITHUB_REPO = 'cmccuistion-hv/Hitachi-CSI-Log-Bundle';
         const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`;
         const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
@@ -1562,6 +1544,7 @@
                 totalLogs: 0,
                 platform: '-',
                 platformVersion: '-',
+                hspcOperatorVersion: '-',
                 hspcVersion: '-',
                 hspccVersion: '-',
                 gitCommit: '-',
@@ -2065,6 +2048,7 @@
                 totalLogs: 0,
                 platform: '-',
                 platformVersion: '-',
+                hspcOperatorVersion: '-',
                 hspcVersion: '-',
                 hspccVersion: '-',
                 gitCommit: '-',
@@ -2355,6 +2339,19 @@
                     if (line.includes('Go version') && state.stats.goVersion === '-') {
                         const match = line.match(/Go version\s*:\s*(.+?)$/);
                         if (match) state.stats.goVersion = match[1].trim();
+                    }
+                }
+            }
+            
+            // Extract HSPC Operator version from hspc-operator-controller-manager logs (only from first 20 lines)
+            if (podName.includes('hspc-operator-controller-manager')) {
+                for (let i = 0; i < Math.min(20, lines.length); i++) {
+                    const line = lines[i];
+                    
+                    // Hitachi CSI Driver Operator Version: 1.17.2, Rev: c20790853c3e6ff268c4bd8b2d8567af975e7387
+                    if (line.includes('Hitachi CSI Driver Operator Version') && state.stats.hspcOperatorVersion === '-') {
+                        const match = line.match(/Hitachi CSI Driver Operator Version:\s*([^,]+)/);
+                        if (match) state.stats.hspcOperatorVersion = match[1].trim();
                     }
                 }
             }
@@ -3540,6 +3537,7 @@
             
             // Get version info from cluster context
             const clusterContextForVersions = getClusterContext(state.currentCluster);
+            let hspcOperatorVersion = state.stats.hspcOperatorVersion;
             let hspcVersion = state.stats.hspcVersion;
             let hspccVersion = state.stats.hspccVersion;
             let gitCommit = state.stats.gitCommit;
@@ -3552,10 +3550,23 @@
             if (clusterContextForVersions) {
                 const lines = clusterContextForVersions.split('\n');
                 for (const line of lines) {
-                    if (line.includes('HSPC version') && hspcVersion === '-') {
+                    // HSPC Version from cluster-context (new format from CSV) or logs (old format)
+                    // Match "HSPC Version:" (from CSV extraction) but NOT "HSPC Operator Version:"
+                    if (hspcVersion === '-' && line.includes('HSPC Version:') && !line.includes('Operator')) {
+                        const match = line.match(/HSPC Version:\s*(.+)/);
+                        if (match && !match[1].includes('Not found')) hspcVersion = match[1].trim();
+                    }
+                    // Also check for old format from CSI driver logs (lowercase 'version')
+                    else if (line.includes('HSPC version') && hspcVersion === '-') {
                         const match = line.match(/HSPC version:\s*(.+)/);
                         if (match) hspcVersion = match[1].trim();
-                    } else if (line.includes('HSPCC version') && hspccVersion === '-') {
+                    } 
+                    // HSPC Operator Version from cluster-context
+                    else if (line.includes('HSPC Operator Version:') && hspcOperatorVersion === '-') {
+                        const match = line.match(/HSPC Operator Version:\s*(.+)/);
+                        if (match) hspcOperatorVersion = match[1].trim();
+                    }
+                    else if (line.includes('HSPCC version') && hspccVersion === '-') {
                         const match = line.match(/HSPCC version:\s*(.+)/);
                         if (match) hspccVersion = match[1].trim();
                     } else if (line.includes('Git commit') && gitCommit === '-') {
@@ -3601,13 +3612,11 @@
                     }
                 }
                 
-                // Count nodes for current cluster
-                const nodeMatches = clusterContextForVersions.match(/Node Name:/g);
-                if (nodeMatches) {
-                    nodeCount = nodeMatches.length;
-                }
+                // Note: nodeCount is already set by parseClusterContext() which correctly
+                // counts nodes from the 'Ready' status lines - don't overwrite it here
             }
             
+            document.getElementById('hspcOperatorVersion').textContent = hspcOperatorVersion;
             document.getElementById('hspcVersion').textContent = hspcVersion;
             document.getElementById('hspccVersion').textContent = hspccVersion;
             document.getElementById('hrpcVersion').textContent = hrpcVersion;

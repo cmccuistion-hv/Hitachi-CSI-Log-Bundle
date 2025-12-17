@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Hitachi HSPC CSI Driver Log Bundle Collector v1.6.2 - PowerShell Edition
+    Hitachi HSPC CSI Driver Log Bundle Collector v1.6.3 - PowerShell Edition
     -Kubeconfig optional · auto-detect OpenShift · full manifests
     -Collects logs from ALL containers in each pod
     -Supports dual-cluster collection with DR-Operator detection
@@ -48,7 +48,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 # Script version
-$SCRIPT_VERSION = "1.6.2-ps1"
+$SCRIPT_VERSION = "1.6.3-ps1"
 
 # Prefer local binaries if present, otherwise system PATH
 $Kubectl = if (Test-Path "./kubectl.exe") { "./kubectl.exe" } elseif (Test-Path "./kubectl") { "./kubectl" } elseif (Get-Command "kubectl" -ErrorAction SilentlyContinue) { "kubectl" } else { "" }
@@ -412,6 +412,58 @@ function Get-FromCluster {
         Log "No HSPC pods found on $ClusterName"
     }
     
+    # Collect HSPC Operator logs (hspc-operator-controller-manager)
+    if ($clusterNamespace) {
+        $ErrorActionPreference = 'SilentlyContinue'
+        $operatorPodsOutput = Invoke-KubeWithConfig -KubeconfigPath $KubeconfigPath get pods -n $clusterNamespace -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>$null
+        $ErrorActionPreference = 'Stop'
+        
+        $operatorPods = @()
+        if ($operatorPodsOutput) {
+            $operatorPods = $operatorPodsOutput.Trim() -split "`n" | Where-Object { $_ -match "hspc-operator-controller-manager" }
+        }
+        
+        if ($operatorPods -and $operatorPods.Count -gt 0) {
+            Log "Found $($operatorPods.Count) HSPC Operator pods on ${ClusterName}: $($operatorPods -join ' ')"
+            Log "Collecting HSPC Operator logs..."
+            foreach ($pod in $operatorPods) {
+                Log "Collecting logs from pod $pod ..."
+                try {
+                    $ErrorActionPreference = 'SilentlyContinue'
+                    $containersOutput = Invoke-KubeWithConfig -KubeconfigPath $KubeconfigPath get pod $pod -n $clusterNamespace -o jsonpath='{.spec.containers[*].name}' 2>> "$clusterOutputDir/errors.log"
+                    $ErrorActionPreference = 'Stop'
+                    
+                    $containers = @()
+                    if ($containersOutput) {
+                        $containers = $containersOutput.Trim() -split '\s+' | Where-Object { $_.Length -gt 0 }
+                    }
+                    
+                    if (-not $containers -or $containers.Count -eq 0) {
+                        "$pod (no containers found)" | Out-File -Append "$clusterOutputDir/failed-pods.txt"
+                        Log "FAILED $pod - no containers found"
+                        continue
+                    }
+                    
+                    foreach ($container in $containers) {
+                        $file = "$clusterOutputDir/${pod}_${container}.log"
+                        try {
+                            Invoke-KubeWithConfig -KubeconfigPath $KubeconfigPath logs $pod -n $clusterNamespace -c $container --limit-bytes=200000000 > $file 2>> "$clusterOutputDir/errors.log"
+                            Log "  `u{2713} Saved $pod/$container"
+                        } catch {
+                            "$pod/$container" | Out-File -Append "$clusterOutputDir/failed-pods.txt"
+                            Log "  `u{2717} FAILED $pod/$container - see errors.log"
+                        }
+                    }
+                } catch {
+                    "$pod (error getting containers)" | Out-File -Append "$clusterOutputDir/failed-pods.txt"
+                    Log "FAILED $pod - error getting containers"
+                }
+            }
+        } else {
+            Log "No HSPC Operator pods found on $ClusterName"
+        }
+    }
+    
     # Check for DR-Operator
     $drOperatorDetected = $false
     $requiredCrds = @("localvolumes.hspc.hitachi.com", "remotevolumes.hspc.hitachi.com", "replications.hspc.hitachi.com")
@@ -620,7 +672,73 @@ function Get-FromCluster {
         }
     }
     
-    # Add version information if available
+    # Extract HSPC version - try multiple sources for different deployment methods
+    if ($clusterNamespace) {
+        "`n=== HSPC Versions ===" | Out-File -Encoding utf8 -Append $contextFile
+        $hspcDriverVersion = ""
+        $hspcOperatorVersion = ""
+        
+        # Method 1: Try CSV description (OpenShift/OLM deployments)
+        $ErrorActionPreference = 'SilentlyContinue'
+        $csvDescription = Invoke-KubeWithConfig -KubeconfigPath $KubeconfigPath get csv -n $clusterNamespace -o jsonpath='{.items[*].spec.description}' 2>$null
+        $ErrorActionPreference = 'Stop'
+        if ($csvDescription) {
+            $hspcVersionMatch = $csvDescription | Select-String -Pattern "HSPC v([0-9]+\.[0-9]+\.[0-9]+)" | Select-Object -First 1
+            if ($hspcVersionMatch) {
+                $hspcDriverVersion = $hspcVersionMatch.Matches[0].Groups[1].Value
+            }
+        }
+        
+        # Method 2: Try image tag from deployment (Helm/direct install)
+        if (-not $hspcDriverVersion) {
+            $ErrorActionPreference = 'SilentlyContinue'
+            $driverImage = Invoke-KubeWithConfig -KubeconfigPath $KubeconfigPath get deploy hspc-csi-controller -n $clusterNamespace -o jsonpath='{.spec.template.spec.containers[?(@.name=="hspc-csi-driver")].image}' 2>$null
+            $ErrorActionPreference = 'Stop'
+            if ($driverImage) {
+                $imageTagMatch = $driverImage | Select-String -Pattern ":([0-9]+\.[0-9]+\.[0-9]+)" | Select-Object -First 1
+                if ($imageTagMatch) {
+                    $hspcDriverVersion = $imageTagMatch.Matches[0].Groups[1].Value
+                }
+            }
+        }
+        
+        if ($hspcDriverVersion) {
+            "HSPC Version: $hspcDriverVersion" | Out-File -Encoding utf8 -Append $contextFile
+            Log "HSPC Version detected: $hspcDriverVersion"
+        } else {
+            "HSPC Version: Not found (check CSI driver logs for startup version info)" | Out-File -Encoding utf8 -Append $contextFile
+        }
+        
+        # Get operator version - try CSV first, then image tag
+        $ErrorActionPreference = 'SilentlyContinue'
+        $csvVersions = Invoke-KubeWithConfig -KubeconfigPath $KubeconfigPath get csv -n $clusterNamespace -o jsonpath='{range .items[*]}{.metadata.name}: {.spec.version}{"\n"}{end}' 2>$null
+        $ErrorActionPreference = 'Stop'
+        if ($csvVersions) {
+            $operatorCsvLine = $csvVersions -split "`n" | Where-Object { $_ -match "hspc-operator" } | Select-Object -First 1
+            if ($operatorCsvLine) {
+                $hspcOperatorVersion = ($operatorCsvLine -split ": ")[-1].Trim()
+            }
+        }
+        
+        # Fallback: Try from operator deployment image tag
+        if (-not $hspcOperatorVersion) {
+            $ErrorActionPreference = 'SilentlyContinue'
+            $operatorImage = Invoke-KubeWithConfig -KubeconfigPath $KubeconfigPath get deploy hspc-operator-controller-manager -n $clusterNamespace -o jsonpath='{.spec.template.spec.containers[?(@.name=="manager")].image}' 2>$null
+            $ErrorActionPreference = 'Stop'
+            if ($operatorImage) {
+                $opImageTagMatch = $operatorImage | Select-String -Pattern ":([0-9]+\.[0-9]+\.[0-9]+)" | Select-Object -First 1
+                if ($opImageTagMatch) {
+                    $hspcOperatorVersion = $opImageTagMatch.Matches[0].Groups[1].Value
+                }
+            }
+        }
+        
+        if ($hspcOperatorVersion) {
+            "HSPC Operator Version: $hspcOperatorVersion" | Out-File -Encoding utf8 -Append $contextFile
+        }
+    }
+    
+    # Add DR operator version information if available
     if ($drOperatorVersion -or $hrpcVersion) {
         "`n=== DR Operator and HRPC Versions ===" | Out-File -Encoding utf8 -Append $contextFile
         if ($drOperatorVersion) {

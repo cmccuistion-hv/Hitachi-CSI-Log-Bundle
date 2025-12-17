@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Hitachi HSPC CSI Driver Log Bundle Collector v1.6.2
+# Hitachi HSPC CSI Driver Log Bundle Collector v1.6.3
 # - --kubeconfig is completely optional (uses default or $KUBECONFIG if present)
 # - Full OpenShift auto-detect + smart fallback to ./oc
 # - All manifests with status (deployments, daemonsets, replicasets)
@@ -13,7 +13,7 @@
 set -euo pipefail
 
 # Script version
-SCRIPT_VERSION="1.6.2-sh"
+SCRIPT_VERSION="1.6.3-sh"
 
 # Helper functions
 log() { echo "[$(date +'%H:%M:%S')] $*"; }
@@ -115,6 +115,13 @@ get_pods() {
     local namespace="$2"
     KUBE_WITH_CONFIG "$kubeconfig" get pods -n "$namespace" \
         -o jsonpath='{range .items[?(@.spec.serviceAccountName=="'"$SERVICE_ACCOUNT"'")]}{.metadata.name}{"\n"}{end}'
+}
+
+get_operator_pods() {
+    local kubeconfig="$1"
+    local namespace="$2"
+    KUBE_WITH_CONFIG "$kubeconfig" get pods -n "$namespace" \
+        -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | grep -E "hspc-operator-controller-manager"
 }
 
 get_all_pods() {
@@ -272,6 +279,18 @@ collect_from_cluster() {
         else
             log "No HSPC pods found on $cluster_name"
         fi
+        
+        # Collect HSPC Operator logs (hspc-operator-controller-manager)
+        mapfile -t OPERATOR_PODS < <(get_operator_pods "$kubeconfig" "$cluster_namespace" 2>/dev/null || true)
+        if [[ ${#OPERATOR_PODS[@]} -gt 0 ]]; then
+            log "Found ${#OPERATOR_PODS[@]} HSPC Operator pods on $cluster_name: ${OPERATOR_PODS[*]}"
+            log "Collecting HSPC Operator logs..."
+            for pod in "${OPERATOR_PODS[@]}"; do
+                collect_pod_logs "$kubeconfig" "$pod" "$cluster_namespace" "$cluster_output_dir"
+            done
+        else
+            log "No HSPC Operator pods found on $cluster_name"
+        fi
     fi
     
     # Check for DR-Operator
@@ -411,7 +430,41 @@ collect_from_cluster() {
                 fi
             fi
             
-            # Add version information if available
+            # Extract HSPC version - try multiple sources for different deployment methods
+            echo -e "\n=== HSPC Versions ==="
+            local hspc_csv_version=""
+            local hspc_driver_version=""
+            local hspc_operator_version=""
+            
+            # Method 1: Try CSV description (OpenShift/OLM deployments)
+            hspc_driver_version=$(KUBE_WITH_CONFIG "$kubeconfig" get csv -n "$cluster_namespace" -o jsonpath='{.items[*].spec.description}' 2>/dev/null | grep -oE "HSPC v[0-9]+\.[0-9]+\.[0-9]+" | head -1 | sed 's/HSPC v//')
+            
+            # Method 2: Try image tag from deployment (Helm/direct install)
+            if [[ -z "$hspc_driver_version" ]]; then
+                local image_tag=""
+                image_tag=$(KUBE_WITH_CONFIG "$kubeconfig" get deploy hspc-csi-controller -n "$cluster_namespace" -o jsonpath='{.spec.template.spec.containers[?(@.name=="hspc-csi-driver")].image}' 2>/dev/null | grep -oE ':[0-9]+\.[0-9]+\.[0-9]+' | sed 's/://')
+                if [[ -n "$image_tag" ]]; then
+                    hspc_driver_version="$image_tag"
+                fi
+            fi
+            
+            if [[ -n "$hspc_driver_version" ]]; then
+                echo "HSPC Version: $hspc_driver_version"
+            else
+                echo "HSPC Version: Not found (check CSI driver logs for startup version info)"
+            fi
+            
+            # Get operator version - try CSV first, then image tag
+            hspc_operator_version=$(KUBE_WITH_CONFIG "$kubeconfig" get csv -n "$cluster_namespace" -o jsonpath='{range .items[*]}{.metadata.name}: {.spec.version}{"\n"}{end}' 2>/dev/null | grep "hspc-operator" | head -1 | sed 's/.*: //')
+            if [[ -z "$hspc_operator_version" ]]; then
+                # Try from operator deployment image tag
+                hspc_operator_version=$(KUBE_WITH_CONFIG "$kubeconfig" get deploy hspc-operator-controller-manager -n "$cluster_namespace" -o jsonpath='{.spec.template.spec.containers[?(@.name=="manager")].image}' 2>/dev/null | grep -oE ':[0-9]+\.[0-9]+\.[0-9]+' | sed 's/://')
+            fi
+            if [[ -n "$hspc_operator_version" ]]; then
+                echo "HSPC Operator Version: $hspc_operator_version"
+            fi
+            
+            # Add DR operator version information if available
             if [[ -n "$dr_operator_version" ]] || [[ -n "$hrpc_version" ]]; then
                 echo -e "\n=== DR Operator and HRPC Versions ==="
                 if [[ -n "$dr_operator_version" ]]; then
