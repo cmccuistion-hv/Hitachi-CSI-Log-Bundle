@@ -525,7 +525,7 @@ while [[ $# -gt 0 ]]; do
         --no-compress) COMPRESS=false; shift ;;
         -h|--help)
             cat <<'EOF'
-Usage: ./hspclogbundlecollectionscript.sh [options]
+Usage: ./get_hitachicsilogs.sh [options]
   --kubeconfig <file>          Primary cluster kubeconfig (backward compatible)
   --kubeconfig-primary <file>  Primary cluster kubeconfig
   --kubeconfig-secondary <file>  Secondary cluster kubeconfig (for dual-cluster collection)

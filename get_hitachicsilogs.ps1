@@ -21,14 +21,14 @@
     Skip zip file creation
 .EXAMPLE
     # Dual-cluster collection (note: PowerShell parameters use PascalCase, no hyphens)
-    ./hspclogbundlecollectionscript.ps1 -KubeconfigPrimary ./dc-1-kubeconfig -KubeconfigSecondary ./dc2-kubeconfig
+    ./get_hitachicsilogs.ps1 -KubeconfigPrimary ./dc-1-kubeconfig -KubeconfigSecondary ./dc2-kubeconfig
     
     # Single cluster (backward compatible)
-    ./hspclogbundlecollectionscript.ps1 -Kubeconfig ./kubeconfig
+    ./get_hitachicsilogs.ps1 -Kubeconfig ./kubeconfig
     
     # Other examples
-    ./hspclogbundlecollectionscript.ps1 -Oc -Namespace my-namespace
-    ./hspclogbundlecollectionscript.ps1 -KubeconfigPrimary ./primary-kubeconfig -Dir ./my-output-dir -NoCompress
+    ./get_hitachicsilogs.ps1 -Oc -Namespace my-namespace
+    ./get_hitachicsilogs.ps1 -KubeconfigPrimary ./primary-kubeconfig -Dir ./my-output-dir -NoCompress
 
 .NOTES
     PowerShell parameter names are case-insensitive but cannot contain hyphens.

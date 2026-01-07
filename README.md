@@ -17,7 +17,7 @@ A comprehensive log collection tool for Hitachi CSI drivers running in Kubernete
 
 ## Requirements
 
-### Bash Script (`hspclogbundlecollectionscript.sh`)
+### Bash Script (`get_hitachicsilogs.sh`)
 
 - Linux or macOS
 - Bash 4.0+
@@ -25,7 +25,7 @@ A comprehensive log collection tool for Hitachi CSI drivers running in Kubernete
 - Valid kubeconfig with access to the cluster
 - Optional: `zip` or `python3` for compression
 
-### PowerShell Script (`hspclogbundlecollectionscript.ps1`)
+### PowerShell Script (`get_hitachicsilogs.ps1`)
 
 - Windows, Linux, or macOS
 - PowerShell 5.1+ or PowerShell Core 7+
@@ -43,7 +43,7 @@ A comprehensive log collection tool for Hitachi CSI drivers running in Kubernete
 
 2. Make the bash script executable (Linux/macOS):
    ```bash
-   chmod +x hspclogbundlecollectionscript.sh
+   chmod +x get_hitachicsilogs.sh
    ```
 
 3. (Optional) Place `kubectl` or `oc` binary in the same directory, or ensure it's in your PATH
@@ -56,53 +56,53 @@ A comprehensive log collection tool for Hitachi CSI drivers running in Kubernete
 
 **Basic usage** (uses default kubeconfig):
 ```bash
-./hspclogbundlecollectionscript.sh
+./get_hitachicsilogs.sh
 ```
 
 **With specific kubeconfig**:
 ```bash
-./hspclogbundlecollectionscript.sh --kubeconfig /path/to/kubeconfig
+./get_hitachicsilogs.sh --kubeconfig /path/to/kubeconfig
 ```
 
 **Force OpenShift oc binary**:
 ```bash
-./hspclogbundlecollectionscript.sh --oc
+./get_hitachicsilogs.sh --oc
 ```
 
 **Specify namespace** (if auto-detection fails):
 ```bash
-./hspclogbundlecollectionscript.sh -n hspc-system
+./get_hitachicsilogs.sh -n hspc-system
 ```
 
 **Custom output directory**:
 ```bash
-./hspclogbundlecollectionscript.sh -d /tmp/my-logs
+./get_hitachicsilogs.sh -d /tmp/my-logs
 ```
 
 **Skip compression**:
 ```bash
-./hspclogbundlecollectionscript.sh --no-compress
+./get_hitachicsilogs.sh --no-compress
 ```
 
 **Multi-cluster collection** (DR-Operator environments):
 ```bash
-./hspclogbundlecollectionscript.sh --kubeconfig-primary /path/to/primary-kubeconfig --kubeconfig-secondary /path/to/secondary-kubeconfig
+./get_hitachicsilogs.sh --kubeconfig-primary /path/to/primary-kubeconfig --kubeconfig-secondary /path/to/secondary-kubeconfig
 ```
 
 **Combined options**:
 ```bash
-./hspclogbundlecollectionscript.sh --kubeconfig ./kubeconfig --oc -n hspc-system
+./get_hitachicsilogs.sh --kubeconfig ./kubeconfig --oc -n hspc-system
 ```
 ##### Note: If error such as below is seen
 ```
-[root@ocp-jumpvm ~]#./hspclogbundlecollectionscript.sh
+[root@ocp-jumpvm ~]#./get_hitachicsilogs.sh
 /usr/bin/env: ‘bash\r’: No such file or directory
 /usr/bin/env: use -[v]S to pass options in shebang lines
 
 ```
 Fix with 
 ```
-sed -i 's/\r$//' hspclogbundlecollectionscript.sh
+sed -i 's/\r$//' get_hitachicsilogs.sh
 
 ```
 
@@ -110,42 +110,42 @@ sed -i 's/\r$//' hspclogbundlecollectionscript.sh
 
 **Basic usage**:
 ```powershell
-.\hspclogbundlecollectionscript.ps1
+.\get_hitachicsilogs.ps1
 ```
 
 **With specific kubeconfig**:
 ```powershell
-.\hspclogbundlecollectionscript.ps1 -Kubeconfig C:\path\to\kubeconfig
+.\get_hitachicsilogs.ps1 -Kubeconfig C:\path\to\kubeconfig
 ```
 
 **Force OpenShift oc binary**:
 ```powershell
-.\hspclogbundlecollectionscript.ps1 -Oc
+.\get_hitachicsilogs.ps1 -Oc
 ```
 
 **Specify namespace**:
 ```powershell
-.\hspclogbundlecollectionscript.ps1 -Namespace hspc-system
+.\get_hitachicsilogs.ps1 -Namespace hspc-system
 ```
 
 **Custom output directory**:
 ```powershell
-.\hspclogbundlecollectionscript.ps1 -Dir C:\temp\my-logs
+.\get_hitachicsilogs.ps1 -Dir C:\temp\my-logs
 ```
 
 **Skip compression**:
 ```powershell
-.\hspclogbundlecollectionscript.ps1 -NoCompress
+.\get_hitachicsilogs.ps1 -NoCompress
 ```
 
 **Multi-cluster collection** (DR-Operator environments):
 ```powershell
-.\hspclogbundlecollectionscript.ps1 -KubeconfigPrimary C:\path\to\primary-kubeconfig -KubeconfigSecondary C:\path\to\secondary-kubeconfig
+.\get_hitachicsilogs.ps1 -KubeconfigPrimary C:\path\to\primary-kubeconfig -KubeconfigSecondary C:\path\to\secondary-kubeconfig
 ```
 
 **Combined options**:
 ```powershell
-.\hspclogbundlecollectionscript.ps1 -Kubeconfig .\kubeconfig -Oc -Namespace hspc-system -Dir .\logs
+.\get_hitachicsilogs.ps1 -Kubeconfig .\kubeconfig -Oc -Namespace hspc-system -Dir .\logs
 ```
 
 ## Command-Line Options
