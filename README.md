@@ -89,6 +89,13 @@ A comprehensive log collection tool for Hitachi CSI drivers running in Kubernete
 ./get_hitachicsilogs.sh --kubeconfig-primary /path/to/primary-kubeconfig --kubeconfig-secondary /path/to/secondary-kubeconfig
 ```
 
+**View help**:
+```bash
+./get_hitachicsilogs.sh -h
+# or
+./get_hitachicsilogs.sh --help
+```
+
 **Combined options**:
 ```bash
 ./get_hitachicsilogs.sh --kubeconfig ./kubeconfig --oc -n hspc-system
@@ -143,6 +150,15 @@ sed -i 's/\r$//' get_hitachicsilogs.sh
 .\get_hitachicsilogs.ps1 -KubeconfigPrimary C:\path\to\primary-kubeconfig -KubeconfigSecondary C:\path\to\secondary-kubeconfig
 ```
 
+**View help**:
+```powershell
+.\get_hitachicsilogs.ps1 -h
+# or
+.\get_hitachicsilogs.ps1 -Help
+# or
+Get-Help .\get_hitachicsilogs.ps1
+```
+
 **Combined options**:
 ```powershell
 .\get_hitachicsilogs.ps1 -Kubeconfig .\kubeconfig -Oc -Namespace hspc-system -Dir .\logs
@@ -161,7 +177,7 @@ sed -i 's/\r$//' get_hitachicsilogs.sh
 | `--kubeconfig-primary <file>` | Path to primary cluster kubeconfig (for multi-cluster) | - |
 | `--kubeconfig-secondary <file>` | Path to secondary cluster kubeconfig (for multi-cluster) | - |
 | `--no-compress` | Skip zip creation | Creates zip |
-| `-h, --help` | Show help message | - |
+| `-h, --help` | Show concise help message | - |
 
 ### PowerShell Script
 
@@ -174,6 +190,7 @@ sed -i 's/\r$//' get_hitachicsilogs.sh
 | `-KubeconfigPrimary <file>` | Path to primary cluster kubeconfig (for multi-cluster) | - |
 | `-KubeconfigSecondary <file>` | Path to secondary cluster kubeconfig (for multi-cluster) | - |
 | `-NoCompress` | Skip zip creation | Creates zip |
+| `-Help, -h` | Show concise help message | - |
 
 ## Output
 
@@ -256,6 +273,13 @@ Contains comprehensive cluster and application information:
 ### Collection is slow
 - Check network connectivity to the cluster
 - Some pods may have very large logs (limited to 200MB per container)
+- You can cancel the collection at any time with Ctrl+C - the script will gracefully stop and clean up
+
+### Cancellation
+- Press **Ctrl+C** at any time to cancel the collection
+- The script will stop processing new pods/containers and terminate any running kubectl/oc commands
+- Partial results will be saved in the output directory
+- Works on both Bash and PowerShell scripts
 
 ### Permission denied errors
 - Ensure your kubeconfig has appropriate RBAC permissions
