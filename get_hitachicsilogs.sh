@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Hitachi HSPC CSI Driver Log Bundle Collector v1.6.3
+# Hitachi HSPC CSI Driver Log Bundle Collector v1.6.4
 # - --kubeconfig is completely optional (uses default or $KUBECONFIG if present)
 # - Full OpenShift auto-detect + smart fallback to ./oc
 # - All manifests with status (deployments, daemonsets, replicasets)
@@ -13,7 +13,47 @@
 set -euo pipefail
 
 # Script version
-SCRIPT_VERSION="1.6.3-sh"
+SCRIPT_VERSION="1.6.4-sh"
+
+# Cancellation handling
+CANCELLED=false
+CHILD_PIDS=()
+
+# Signal handler for graceful cancellation
+cleanup_and_exit() {
+    local signal_name="$1"
+    CANCELLED=true
+    log ""
+    log "Cancellation requested (${signal_name}) - cleaning up..."
+    
+    # Kill any tracked child PIDs
+    if [[ ${#CHILD_PIDS[@]} -gt 0 ]]; then
+        for pid in "${CHILD_PIDS[@]}"; do
+            if kill -0 "$pid" 2>/dev/null; then
+                kill -TERM "$pid" 2>/dev/null || true
+            fi
+        done
+        sleep 1
+        for pid in "${CHILD_PIDS[@]}"; do
+            if kill -0 "$pid" 2>/dev/null; then
+                kill -KILL "$pid" 2>/dev/null || true
+            fi
+        done
+    fi
+    
+    # Kill any remaining child processes (kubectl/oc, timeout, etc.) spawned by this script
+    # This catches processes that weren't tracked in CHILD_PIDS
+    pkill -P $$ -TERM 2>/dev/null || true
+    sleep 1
+    pkill -P $$ -KILL 2>/dev/null || true
+    
+    log "Script cancelled. Partial results may be in: $OUTPUT_DIR"
+    exit 130  # Standard exit code for SIGINT
+}
+
+# Trap signals for cancellation
+trap 'cleanup_and_exit "SIGINT"' INT
+trap 'cleanup_and_exit "SIGTERM"' TERM
 
 # Helper functions
 log() { echo "[$(date +'%H:%M:%S')] $*"; }
@@ -137,12 +177,22 @@ collect_pod_logs() {
     local namespace="$3"
     local output_dir="$4"
     
+    # Check for cancellation
+    if [[ "$CANCELLED" == "true" ]]; then
+        return 1
+    fi
+    
     log "Collecting logs from pod $pod ..."
     
     # Get all containers in the pod
     local containers
     containers=$(timeout "$TIMEOUT_SEC" "$CMD" --kubeconfig="$kubeconfig" get pod "$pod" -n "$namespace" \
-        -o jsonpath='{.spec.containers[*].name}' 2>>"$output_dir/errors.log")
+        -o jsonpath='{.spec.containers[*].name}' 2>>"$output_dir/errors.log" || echo "")
+    
+    # Check for cancellation after getting containers
+    if [[ "$CANCELLED" == "true" ]]; then
+        return 1
+    fi
     
     if [[ -z "$containers" ]]; then
         echo "$pod (no containers found)" >> "$output_dir/failed-pods.txt"
@@ -152,11 +202,20 @@ collect_pod_logs() {
     
     # Collect logs from each container
     for container in $containers; do
+        # Check for cancellation in loop
+        if [[ "$CANCELLED" == "true" ]]; then
+            return 1
+        fi
+        
         local file="$output_dir/${pod}_${container}.log"
         if timeout "$TIMEOUT_SEC" "$CMD" --kubeconfig="$kubeconfig" logs "$pod" -n "$namespace" -c "$container" \
             --limit-bytes=200000000 > "$file" 2>>"$output_dir/errors.log"; then
             log "  ✓ Saved $pod/$container"
         else
+            # Check if failure was due to cancellation
+            if [[ "$CANCELLED" == "true" ]]; then
+                return 1
+            fi
             echo "$pod/$container" >> "$output_dir/failed-pods.txt"
             log "  ✗ FAILED $pod/$container - see errors.log"
         fi
@@ -213,6 +272,11 @@ collect_from_cluster() {
     local cluster_name="$2"
     local cluster_output_dir="$OUTPUT_DIR/$cluster_name"
     local temp_kubeconfig_arg=""
+    
+    # Check for cancellation at start
+    if [[ "$CANCELLED" == "true" ]]; then
+        return 1
+    fi
     
     if [[ -n "$kubeconfig" ]]; then
         temp_kubeconfig_arg="--kubeconfig=$kubeconfig"
@@ -274,6 +338,9 @@ collect_from_cluster() {
             log "Found ${#PODS[@]} HSPC pods on $cluster_name: ${PODS[*]}"
             log "Collecting HSPC logs..."
             for pod in "${PODS[@]}"; do
+                if [[ "$CANCELLED" == "true" ]]; then
+                    return 1
+                fi
                 collect_pod_logs "$kubeconfig" "$pod" "$cluster_namespace" "$cluster_output_dir"
             done
         else
@@ -286,6 +353,9 @@ collect_from_cluster() {
             log "Found ${#OPERATOR_PODS[@]} HSPC Operator pods on $cluster_name: ${OPERATOR_PODS[*]}"
             log "Collecting HSPC Operator logs..."
             for pod in "${OPERATOR_PODS[@]}"; do
+                if [[ "$CANCELLED" == "true" ]]; then
+                    return 1
+                fi
                 collect_pod_logs "$kubeconfig" "$pod" "$cluster_namespace" "$cluster_output_dir"
             done
         else
@@ -318,6 +388,9 @@ collect_from_cluster() {
             if [[ ${#REP_PODS[@]} -gt 0 ]]; then
                 log "Found ${#REP_PODS[@]} pods in $REPLICATION_NAMESPACE"
                 for pod in "${REP_PODS[@]}"; do
+                    if [[ "$CANCELLED" == "true" ]]; then
+                        return 1
+                    fi
                     collect_pod_logs "$kubeconfig" "$pod" "$REPLICATION_NAMESPACE" "$rep_output_dir"
                 done
             else
@@ -478,6 +551,9 @@ collect_from_cluster() {
             if [[ ${#PODS[@]} -gt 0 ]]; then
                 echo -e "\n=== Pod Ownership Chain ==="
                 for pod in "${PODS[@]}"; do
+                    if [[ "$CANCELLED" == "true" ]]; then
+                        break
+                    fi
                     owner_kind=$(KUBE_WITH_CONFIG "$kubeconfig" get pod "$pod" -n "$cluster_namespace" -o jsonpath='{.metadata.ownerReferences[0].kind}' 2>/dev/null || echo "None")
                     owner_name=$(KUBE_WITH_CONFIG "$kubeconfig" get pod "$pod" -n "$cluster_namespace" -o jsonpath='{.metadata.ownerReferences[0].name}' 2>/dev/null || echo "None")
                     if [[ "$owner_kind" == "ReplicaSet" ]]; then
@@ -490,6 +566,9 @@ collect_from_cluster() {
                 
                 echo -e "\n=== Pod Descriptions ==="
                 for pod in "${PODS[@]}"; do
+                    if [[ "$CANCELLED" == "true" ]]; then
+                        break
+                    fi
                     echo "=== $pod ==="
                     KUBE_WITH_CONFIG "$kubeconfig" describe pod "$pod" -n "$cluster_namespace" 2>/dev/null || true
                     echo
@@ -563,21 +642,42 @@ collect_from_cluster "$PRIMARY_KUBECONFIG" "primary-cluster"
 primary_exit_code=$?
 set -e
 
+# Check if cancelled
+if [[ "$CANCELLED" == "true" ]]; then
+    exit 130
+fi
+
 if [[ $primary_exit_code -ne 0 ]]; then
     log "WARNING: Primary cluster collection completed with errors (exit code: $primary_exit_code)"
 fi
 
 # Collect from secondary cluster if specified
 if [[ -n "$KUBECONFIG_SECONDARY" ]]; then
+    # Check for cancellation before secondary collection
+    if [[ "$CANCELLED" == "true" ]]; then
+        exit 130
+    fi
+    
     log ""
     set +e
     collect_from_cluster "$KUBECONFIG_SECONDARY" "secondary-cluster"
     secondary_exit_code=$?
     set -e
     
+    # Check if cancelled after secondary collection
+    if [[ "$CANCELLED" == "true" ]]; then
+        exit 130
+    fi
+    
     if [[ $secondary_exit_code -ne 0 ]]; then
         log "WARNING: Secondary cluster collection completed with errors (exit code: $secondary_exit_code)"
     fi
+fi
+
+# Check for cancellation before compression
+if [[ "$CANCELLED" == "true" ]]; then
+    log "Collection cancelled - skipping compression"
+    exit 130
 fi
 
 log "Collection complete → $OUTPUT_DIR"
