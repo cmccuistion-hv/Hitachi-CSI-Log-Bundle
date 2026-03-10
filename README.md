@@ -13,6 +13,7 @@ A comprehensive log collection tool for Hitachi CSI drivers running in Kubernete
 - 🗜️ **Auto-Compression**: Creates zip archives automatically (optional)
 - 🛡️ **Robust**: Handles timeouts, errors gracefully, and provides fallback mechanisms
 - 💻 **Cross-Platform**: Both Bash and PowerShell versions available
+- 🔬 **Must-Gather Integration**: Optionally run `oc adm must-gather` for Migration Toolkit for Containers (MTC) and/or Migration Toolkit for Virtualization (MTV)
 - 📊 **Advanced Log Viewer**: HTML-based viewer with filtering, search, DR Policies management, and multi-cluster comparison
 
 ## Requirements
@@ -89,6 +90,28 @@ A comprehensive log collection tool for Hitachi CSI drivers running in Kubernete
 ./get_hitachicsilogs.sh --kubeconfig-primary /path/to/primary-kubeconfig --kubeconfig-secondary /path/to/secondary-kubeconfig
 ```
 
+**Run MTC must-gather** (Migration Toolkit for Containers; OpenShift + oc required):
+```bash
+./get_hitachicsilogs.sh --mtc
+```
+
+**Run MTV must-gather** (Migration Toolkit for Virtualization; OpenShift + oc required):
+```bash
+./get_hitachicsilogs.sh --mtv
+```
+
+**Run both must-gathers together**:
+```bash
+./get_hitachicsilogs.sh --mtc --mtv
+```
+
+**View help**:
+```bash
+./get_hitachicsilogs.sh -h
+# or
+./get_hitachicsilogs.sh --help
+```
+
 **Combined options**:
 ```bash
 ./get_hitachicsilogs.sh --kubeconfig ./kubeconfig --oc -n hspc-system
@@ -143,6 +166,30 @@ sed -i 's/\r$//' get_hitachicsilogs.sh
 .\get_hitachicsilogs.ps1 -KubeconfigPrimary C:\path\to\primary-kubeconfig -KubeconfigSecondary C:\path\to\secondary-kubeconfig
 ```
 
+**Run MTC must-gather** (Migration Toolkit for Containers; OpenShift + oc required):
+```powershell
+.\get_hitachicsilogs.ps1 -Mtc
+```
+
+**Run MTV must-gather** (Migration Toolkit for Virtualization; OpenShift + oc required):
+```powershell
+.\get_hitachicsilogs.ps1 -Mtv
+```
+
+**Run both must-gathers together**:
+```powershell
+.\get_hitachicsilogs.ps1 -Mtc -Mtv
+```
+
+**View help**:
+```powershell
+.\get_hitachicsilogs.ps1 -h
+# or
+.\get_hitachicsilogs.ps1 -Help
+# or
+Get-Help .\get_hitachicsilogs.ps1
+```
+
 **Combined options**:
 ```powershell
 .\get_hitachicsilogs.ps1 -Kubeconfig .\kubeconfig -Oc -Namespace hspc-system -Dir .\logs
@@ -161,7 +208,9 @@ sed -i 's/\r$//' get_hitachicsilogs.sh
 | `--kubeconfig-primary <file>` | Path to primary cluster kubeconfig (for multi-cluster) | - |
 | `--kubeconfig-secondary <file>` | Path to secondary cluster kubeconfig (for multi-cluster) | - |
 | `--no-compress` | Skip zip creation | Creates zip |
-| `-h, --help` | Show help message | - |
+| `--mtc` | Run `oc adm must-gather` for Migration Toolkit for Containers (OpenShift + oc required) | Disabled |
+| `--mtv` | Run `oc adm must-gather` for Migration Toolkit for Virtualization (OpenShift + oc required) | Disabled |
+| `-h, --help` | Show concise help message | - |
 
 ### PowerShell Script
 
@@ -174,6 +223,9 @@ sed -i 's/\r$//' get_hitachicsilogs.sh
 | `-KubeconfigPrimary <file>` | Path to primary cluster kubeconfig (for multi-cluster) | - |
 | `-KubeconfigSecondary <file>` | Path to secondary cluster kubeconfig (for multi-cluster) | - |
 | `-NoCompress` | Skip zip creation | Creates zip |
+| `-Mtc` | Run `oc adm must-gather` for Migration Toolkit for Containers (OpenShift + oc required) | Disabled |
+| `-Mtv` | Run `oc adm must-gather` for Migration Toolkit for Virtualization (OpenShift + oc required) | Disabled |
+| `-Help, -h` | Show concise help message | - |
 
 ## Output
 
@@ -222,6 +274,13 @@ Contains comprehensive cluster and application information:
 10. **Recent Events**: Last 100 events in the namespace
 11. **DR-Operator Resources** (when detected): LocalVolume, RemoteVolume, Replication, and DRPolicy Custom Resources
 
+### Must-Gather Output (optional)
+When `--mtc` or `--mtv` (Bash) / `-Mtc` or `-Mtv` (PowerShell) are specified:
+- `must-gather-mtc/` - Output from `oc adm must-gather` for Migration Toolkit for Containers
+- `must-gather-mtv/` - Output from `oc adm must-gather` for Migration Toolkit for Virtualization
+
+> **Note**: Must-gather requires OpenShift and the `oc` binary. If either is not detected, the step is skipped with a warning and collection continues normally. Must-gather can take up to 30 minutes per run.
+
 ### Error Tracking
 - `errors.log` - Any errors encountered during collection
 - `failed-pods.txt` - List of pods/containers that failed to collect
@@ -256,6 +315,18 @@ Contains comprehensive cluster and application information:
 ### Collection is slow
 - Check network connectivity to the cluster
 - Some pods may have very large logs (limited to 200MB per container)
+- You can cancel the collection at any time with Ctrl+C - the script will gracefully stop and clean up
+
+### Cancellation
+- Press **Ctrl+C** at any time to cancel the collection
+- The script will stop processing new pods/containers and terminate any running kubectl/oc commands
+- Partial results will be saved in the output directory
+- Works on both Bash and PowerShell scripts
+
+### Must-gather is skipped
+- Ensure you are connected to an OpenShift cluster (not plain Kubernetes)
+- Ensure the `oc` binary is available in your PATH or script directory
+- Must-gather uses `oc adm must-gather` which is not available via `kubectl`
 
 ### Permission denied errors
 - Ensure your kubeconfig has appropriate RBAC permissions
