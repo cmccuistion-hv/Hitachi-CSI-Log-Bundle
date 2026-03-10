@@ -112,7 +112,7 @@ function Stop-Collection {
 # Register handler for Ctrl+C cancellation (cross-platform compatible)
 # Try to register CancelKeyPress if available (Windows PowerShell), otherwise rely on try-catch
 $cancelHandler = {
-    param($sender, $e)
+    param($eventSender, $e)
     $e.Cancel = $true  # Prevent immediate termination, allow cleanup
     Stop-Collection
 }
