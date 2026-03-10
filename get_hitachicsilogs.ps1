@@ -4,7 +4,8 @@
     -Kubeconfig optional · auto-detect OpenShift · full manifests
     -Collects logs from ALL containers in each pod
     -Supports dual-cluster collection with DR-Operator detection
-    -Oc optional 
+    -Oc optional
+    -Optional MTC/MTV must-gather (-Mtc / -Mtv; OpenShift + oc required)
 .PARAMETER Kubeconfig
     Primary cluster kubeconfig file (backward compatible, maps to KubeconfigPrimary)
 .PARAMETER KubeconfigPrimary
@@ -19,6 +20,12 @@
     Output directory (default: ./hspc-csi-logs-YYYYMMDD-HHMMSS)
 .PARAMETER NoCompress
     Skip zip file creation
+.PARAMETER Mtc
+    Run oc adm must-gather for Migration Toolkit for Containers.
+    Requires OpenShift and oc to be available; skipped with a warning if not detected.
+.PARAMETER Mtv
+    Run oc adm must-gather for Migration Toolkit for Virtualization.
+    Requires OpenShift and oc to be available; skipped with a warning if not detected.
 .PARAMETER Help
     Display this help message. Can also use -h or -? to view help.
 .PARAMETER h
@@ -56,6 +63,8 @@ param(
     [string]$Namespace = "",
     [string]$Dir = "",
     [switch]$NoCompress,
+    [switch]$Mtc,
+    [switch]$Mtv,
     [Alias("h")]
     [switch]$Help
 )
@@ -173,6 +182,10 @@ Usage: ./get_hitachicsilogs.ps1 [options]
   -Namespace <ns>              Force namespace
   -Dir <dir>                   Output dir
   -NoCompress                  No zip
+  -Mtc                         Run oc adm must-gather for Migration Toolkit for Containers
+                               Requires OpenShift and oc; skipped with warning if not available
+  -Mtv                         Run oc adm must-gather for Migration Toolkit for Virtualization
+                               Requires OpenShift and oc; skipped with warning if not available
   -Help, -h                    Show this help message
 "@
     exit 0
@@ -324,6 +337,60 @@ function Get-CustomResources {
         Invoke-KubeWithConfig -KubeconfigPath $KubeconfigPath get replicationgroup --all-namespaces -o yaml | Out-File -Encoding utf8 -Append $OutputFile
     } catch {
         "No ReplicationGroups found" | Out-File -Encoding utf8 -Append $OutputFile
+    }
+}
+
+function Invoke-MustGather {
+    param(
+        [string]$KubeconfigPath,
+        [string]$ClusterOutputDir,
+        [string]$Tool,    # "mtc" or "mtv"
+        [string]$Image
+    )
+
+    # Require oc (must-gather is an oc adm command, not available in kubectl)
+    if (-not $OcCmd) {
+        Log "Skipping $Tool must-gather: oc command not available"
+        return
+    }
+
+    # Require OpenShift (re-use the route.openshift.io API group check)
+    $ErrorActionPreference = 'SilentlyContinue'
+    $routeCheck = @(Invoke-KubeWithConfig -KubeconfigPath $KubeconfigPath api-resources --api-group=route.openshift.io 2>$null | Where-Object { $_.Trim() })
+    $ErrorActionPreference = 'Stop'
+    if ($routeCheck.Count -le 1) {
+        Log "Skipping $Tool must-gather: OpenShift not detected on this cluster"
+        return
+    }
+
+    $destDir = Join-Path $ClusterOutputDir "must-gather-$Tool"
+    New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+
+    Log "Running $Tool must-gather (this may take up to 30 minutes)..."
+
+    $ocArgs = @()
+    if ($KubeconfigPath) {
+        $ocArgs += "--kubeconfig=$KubeconfigPath"
+    }
+    $ocArgs += @("adm", "must-gather", "--image=$Image", "--dest-dir=$destDir")
+
+    $errorsLog = "$ClusterOutputDir/errors.log"
+    try {
+        $ErrorActionPreference = 'SilentlyContinue'
+        & $OcCmd @ocArgs 2>> $errorsLog
+        $exitCode = $LASTEXITCODE
+        $ErrorActionPreference = 'Stop'
+
+        if ($exitCode -eq 0) {
+            Log "  `u{2713} $Tool must-gather saved to: $destDir"
+        } else {
+            if ($script:Cancelled) { return }
+            Log "  `u{2717} $Tool must-gather failed (exit $exitCode) - see errors.log"
+        }
+    } catch {
+        $ErrorActionPreference = 'Stop'
+        if ($script:Cancelled) { return }
+        Log "  `u{2717} $Tool must-gather failed: $_ - see errors.log"
     }
 }
 
@@ -839,7 +906,34 @@ function Get-FromCluster {
                 }
             }
         }
-        
+
+        # Method 3: Try image tag from DaemonSet (node pods)
+        if (-not $hspcDriverVersion) {
+            $ErrorActionPreference = 'SilentlyContinue'
+            $nodeImage = Invoke-KubeWithConfig -KubeconfigPath $KubeconfigPath get daemonset hspc-csi-node -n $clusterNamespace -o jsonpath='{.spec.template.spec.containers[?(@.name=="hspc-csi-driver")].image}' 2>$null
+            $ErrorActionPreference = 'Stop'
+            if ($nodeImage) {
+                $imageTagMatch = $nodeImage | Select-String -Pattern ":([0-9]+\.[0-9]+\.[0-9]+)" | Select-Object -First 1
+                if ($imageTagMatch) { $hspcDriverVersion = $imageTagMatch.Matches[0].Groups[1].Value }
+            }
+        }
+
+        # Method 4: Try version from already-collected CSI driver log files
+        if (-not $hspcDriverVersion) {
+            $logFiles = Get-ChildItem -Path $clusterOutputDir -Filter "*_hspc-csi-driver.log" -ErrorAction SilentlyContinue
+            foreach ($logFile in $logFiles) {
+                $versionLine = Get-Content $logFile.FullName -ErrorAction SilentlyContinue |
+                    Select-String "HSPC version" | Select-Object -First 1
+                if ($versionLine) {
+                    $versionMatch = $versionLine.Line | Select-String -Pattern "([0-9]+\.[0-9]+\.[0-9]+)" | Select-Object -First 1
+                    if ($versionMatch) {
+                        $hspcDriverVersion = $versionMatch.Matches[0].Groups[1].Value
+                        break
+                    }
+                }
+            }
+        }
+
         if ($hspcDriverVersion) {
             "HSPC Version: $hspcDriverVersion" | Out-File -Encoding utf8 -Append $contextFile
             Log "HSPC Version detected: $hspcDriverVersion"
@@ -931,6 +1025,26 @@ function Get-FromCluster {
         Log "WARNING: Failed to create cluster-context.txt"
     }
     
+    # Run MTC must-gather if requested
+    if ($Mtc) {
+        if ($script:Cancelled) {
+            $Kubeconfig = $savedKubeconfig
+            return
+        }
+        Invoke-MustGather -KubeconfigPath $KubeconfigPath -ClusterOutputDir $clusterOutputDir `
+            -Tool "mtc" -Image "registry.redhat.io/rhmtc/openshift-migration-must-gather-rhel8:v1.8"
+    }
+
+    # Run MTV must-gather if requested
+    if ($Mtv) {
+        if ($script:Cancelled) {
+            $Kubeconfig = $savedKubeconfig
+            return
+        }
+        Invoke-MustGather -KubeconfigPath $KubeconfigPath -ClusterOutputDir $clusterOutputDir `
+            -Tool "mtv" -Image "registry.redhat.io/migration-toolkit-virtualization/mtv-must-gather-rhel8:2.11.0"
+    }
+
     $Kubeconfig = $savedKubeconfig
     Log "Collection from $ClusterName complete"
 }

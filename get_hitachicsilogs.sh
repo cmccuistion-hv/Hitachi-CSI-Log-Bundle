@@ -8,6 +8,7 @@
 # - Pod ownership chain
 # - Events, describes, version, HSPC CR
 # - Python zip fallback (always works)
+# - Optional MTC/MTV must-gather (--mtc / --mtv; OpenShift + oc required)
 # =============================================================================
 
 set -euo pipefail
@@ -80,6 +81,9 @@ NAMESPACE=""
 OUTPUT_DIR="./hspc-csi-logs-$(date +%Y%m%d-%H%M%S)"
 COMPRESS=true
 TIMEOUT_SEC=300
+MUST_GATHER_TIMEOUT_SEC=1800
+COLLECT_MTC=false
+COLLECT_MTV=false
 
 CRD_NAME="hspcs.csi.hitachi.com"
 KIND="HSPC"
@@ -264,6 +268,49 @@ collect_custom_resources() {
         : # Success
     else
         echo "No ReplicationGroups found"
+    fi
+}
+
+collect_must_gather() {
+    local kubeconfig="$1"
+    local cluster_output_dir="$2"
+    local tool="$3"    # "mtc" or "mtv"
+    local image="$4"
+
+    # Require oc (must-gather is an oc adm command, not available in kubectl)
+    if [[ -z "$OC_CMD" ]]; then
+        log "Skipping $tool must-gather: oc command not available"
+        return 0
+    fi
+
+    # Require OpenShift (re-use the route.openshift.io API group check)
+    local line_count
+    line_count=$(KUBE_WITH_CONFIG "$kubeconfig" api-resources --api-group=route.openshift.io 2>/dev/null | wc -l)
+    if [[ $line_count -le 1 ]]; then
+        log "Skipping $tool must-gather: OpenShift not detected on this cluster"
+        return 0
+    fi
+
+    local dest_dir="$cluster_output_dir/must-gather-${tool}"
+    mkdir -p "$dest_dir"
+
+    log "Running $tool must-gather (this may take up to 30 minutes)..."
+
+    local oc_kubeconfig_arg=()
+    if [[ -n "$kubeconfig" ]]; then
+        oc_kubeconfig_arg=("--kubeconfig=$kubeconfig")
+    fi
+
+    if timeout "$MUST_GATHER_TIMEOUT_SEC" "$OC_CMD" "${oc_kubeconfig_arg[@]}" adm must-gather \
+        --image="$image" \
+        --dest-dir="$dest_dir" \
+        2>>"$cluster_output_dir/errors.log"; then
+        log "  ✓ $tool must-gather saved to: $dest_dir"
+    else
+        if [[ "$CANCELLED" == "true" ]]; then
+            return 1
+        fi
+        log "  ✗ $tool must-gather failed - see errors.log"
     fi
 }
 
@@ -520,7 +567,25 @@ collect_from_cluster() {
                     hspc_driver_version="$image_tag"
                 fi
             fi
-            
+
+            # Method 3: Try image tag from DaemonSet (node pods)
+            if [[ -z "$hspc_driver_version" ]]; then
+                local image_tag=""
+                image_tag=$(KUBE_WITH_CONFIG "$kubeconfig" get daemonset hspc-csi-node -n "$cluster_namespace" -o jsonpath='{.spec.template.spec.containers[?(@.name=="hspc-csi-driver")].image}' 2>/dev/null | grep -oE ':[0-9]+\.[0-9]+\.[0-9]+' | sed 's/://')
+                if [[ -n "$image_tag" ]]; then
+                    hspc_driver_version="$image_tag"
+                fi
+            fi
+
+            # Method 4: Try version from already-collected CSI driver log files
+            if [[ -z "$hspc_driver_version" ]]; then
+                local version_from_log=""
+                version_from_log=$(grep -h -m 1 "HSPC version" "$cluster_output_dir"/*_hspc-csi-driver.log 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+                if [[ -n "$version_from_log" ]]; then
+                    hspc_driver_version="$version_from_log"
+                fi
+            fi
+
             if [[ -n "$hspc_driver_version" ]]; then
                 echo "HSPC Version: $hspc_driver_version"
             else
@@ -589,6 +654,26 @@ collect_from_cluster() {
         log "WARNING: Failed to create cluster-context.txt"
     fi
     
+    # Run MTC must-gather if requested
+    if [[ "$COLLECT_MTC" == "true" ]]; then
+        if [[ "$CANCELLED" == "true" ]]; then
+            KUBECONFIG_ARG="$saved_kubeconfig_arg"
+            return 1
+        fi
+        collect_must_gather "$kubeconfig" "$cluster_output_dir" "mtc" \
+            "registry.redhat.io/rhmtc/openshift-migration-must-gather-rhel8:v1.8"
+    fi
+
+    # Run MTV must-gather if requested
+    if [[ "$COLLECT_MTV" == "true" ]]; then
+        if [[ "$CANCELLED" == "true" ]]; then
+            KUBECONFIG_ARG="$saved_kubeconfig_arg"
+            return 1
+        fi
+        collect_must_gather "$kubeconfig" "$cluster_output_dir" "mtv" \
+            "registry.redhat.io/migration-toolkit-virtualization/mtv-must-gather-rhel8:2.11.0"
+    fi
+
     KUBECONFIG_ARG="$saved_kubeconfig_arg"
     log "Collection from $cluster_name complete"
 }
@@ -602,6 +687,8 @@ while [[ $# -gt 0 ]]; do
         -n|--namespace) NAMESPACE="$2"; shift 2 ;;
         -d|--dir)     OUTPUT_DIR="$2"; shift 2 ;;
         --no-compress) COMPRESS=false; shift ;;
+        --mtc)        COLLECT_MTC=true; shift ;;
+        --mtv)        COLLECT_MTV=true; shift ;;
         -h|--help)
             cat <<'EOF'
 Usage: ./get_hitachicsilogs.sh [options]
@@ -612,6 +699,10 @@ Usage: ./get_hitachicsilogs.sh [options]
   -n <ns>                      Force namespace
   -d <dir>                     Output dir
   --no-compress                No zip
+  --mtc                        Run oc adm must-gather for Migration Toolkit for Containers
+                               (OpenShift + oc required; skipped with warning if not detected)
+  --mtv                        Run oc adm must-gather for Migration Toolkit for Virtualization
+                               (OpenShift + oc required; skipped with warning if not detected)
 EOF
             exit 0
             ;;
