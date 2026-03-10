@@ -2,6 +2,8 @@
 
 A comprehensive log collection tool for Hitachi CSI drivers running in Kubernetes or OpenShift environments. This tool automatically discovers your HSPC installation, collects logs from all our CSI's pods and containers, gathers cluster context, and packages everything into a convenient bundle for troubleshooting and support.
 
+> **Log Viewer**: [https://cmccuistion-hv.github.io/Hitachi-CSI-Log-Bundle/](https://cmccuistion-hv.github.io/Hitachi-CSI-Log-Bundle/) — Open directly in your browser, no installation required.
+
 ## Features
 
 - 🔍 **Auto-Discovery**: Automatically detects HSPC namespace and resources
@@ -237,7 +239,9 @@ The script creates a directory (and optionally a zip file) containing:
 
 ## Log Viewer
 
-This repository includes an HTML-based log viewer (`Hitachi-CSI-log-Bundle-Viewer.html`) for comprehensive analysis of collected logs. Simply open the HTML file in a browser and load your log bundle directory.
+The log viewer is available online at **[https://cmccuistion-hv.github.io/Hitachi-CSI-Log-Bundle/](https://cmccuistion-hv.github.io/Hitachi-CSI-Log-Bundle/)** — no installation required, just open it in your browser and load your log bundle.
+
+Alternatively, download `Hitachi-CSI-log-Bundle-Viewer.html` from this repository and open it locally in any modern browser.
 
 **Note**: The viewer supports both ZIP files and folders. Drag and drop ZIP files directly, or use the browse buttons to select either ZIP files or folders.
 
