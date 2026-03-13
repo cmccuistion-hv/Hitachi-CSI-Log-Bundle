@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Hitachi HSPC CSI Driver Log Bundle Collector v1.6.4 - PowerShell Edition
+    Hitachi HSPC CSI Driver Log Bundle Collector v1.7.0 - PowerShell Edition
     -Kubeconfig optional · auto-detect OpenShift · full manifests
     -Collects logs from ALL containers in each pod
     -Supports dual-cluster collection with DR-Operator detection
@@ -72,7 +72,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 # Script version
-$SCRIPT_VERSION = "1.6.4-ps1"
+$SCRIPT_VERSION = "1.7.0-ps1"
 
 # Cancellation handling
 $script:Cancelled = $false

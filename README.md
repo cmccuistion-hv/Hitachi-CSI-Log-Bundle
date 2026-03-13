@@ -17,6 +17,7 @@ A comprehensive log collection tool for Hitachi CSI drivers running in Kubernete
 - 💻 **Cross-Platform**: Both Bash and PowerShell versions available
 - 🔬 **Must-Gather Integration**: Optionally run `oc adm must-gather` for Migration Toolkit for Containers (MTC) and/or Migration Toolkit for Virtualization (MTV)
 - 📊 **Advanced Log Viewer**: HTML-based viewer with filtering, search, DR Policies management, and multi-cluster comparison
+- 🤖 **AI-Powered Analysis**: Analyze log bundles with an LLM (OpenAI-compatible API) for prioritized issues, root cause, and recommended actions; optional follow-up chat with context from your logs
 
 ## Requirements
 
@@ -247,6 +248,11 @@ Alternatively, download `Hitachi-CSI-log-Bundle-Viewer.html` from this repositor
 
 ### Viewer Features
 
+- **AI Analysis**: Analyze the loaded log bundle with an LLM (OpenAI-compatible API) to get a prioritized list of issues and recommended next steps.
+  - Configurable API key, endpoint URL, and model (e.g. gpt-4o-mini); API key is sent only to your chosen provider.
+  - Rich analysis payload: environment summary (platform, versions, node count), error categories with counts, key identifiers (HSPC codes, volume IDs), smart error-line sampling, config summary, cluster context excerpt, and pod/node health.
+  - Results shown as priority-ranked issue cards (high/medium/low) with evidence, root cause, and recommended actions; markdown output with safe HTML (DOMPurify).
+  - **Chat**: Follow-up questions about your logs; relevant excerpts are sent to the model. Copy, save, or clear chat history. Collapsible sections for setup, results, and chat.
 - **Multi-Cluster Support**: View and filter logs, health data, and configuration by cluster when using multi-cluster bundles
 - **DR Policies Management**: Dedicated tab for viewing and managing DR Policies (automatically appears when DR-Operator CRDs are detected)
   - Side-by-side comparison of matching DR Policies across clusters

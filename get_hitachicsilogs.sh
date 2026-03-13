@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Hitachi HSPC CSI Driver Log Bundle Collector v1.6.4
+# Hitachi HSPC CSI Driver Log Bundle Collector v1.7.0
 # - --kubeconfig is completely optional (uses default or $KUBECONFIG if present)
 # - Full OpenShift auto-detect + smart fallback to ./oc
 # - All manifests with status (deployments, daemonsets, replicasets)
@@ -14,7 +14,7 @@
 set -euo pipefail
 
 # Script version
-SCRIPT_VERSION="1.6.4-sh"
+SCRIPT_VERSION="1.7.0-sh"
 
 # Cancellation handling
 CANCELLED=false

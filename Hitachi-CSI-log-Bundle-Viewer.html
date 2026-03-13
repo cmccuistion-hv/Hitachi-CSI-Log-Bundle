@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hitachi CSI Log Bundle Viewer</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -1006,6 +1008,206 @@
             color: var(--text-secondary);
         }
 
+        /* AI Analysis Tab */
+        .ai-analysis-panel {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            overflow: hidden;
+            padding: 16px;
+            gap: 8px;
+        }
+        .ai-collapsible-section {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            flex: 1 1 0;
+            background: var(--bg-secondary);
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+        }
+        .ai-collapsible-section.ai-section-minimized {
+            flex: 0 0 auto;
+        }
+        .ai-collapsible-section.ai-section-minimized .ai-collapsible-body {
+            display: none;
+        }
+        .ai-collapsible-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 40px;
+            padding: 0 12px;
+            background: var(--bg-tertiary);
+            border-radius: 6px 6px 0 0;
+            cursor: pointer;
+            user-select: none;
+            flex-shrink: 0;
+        }
+        .ai-collapsible-section.ai-section-minimized .ai-collapsible-header {
+            border-radius: 6px;
+        }
+        .ai-collapsible-header:hover {
+            background: var(--bg-hover);
+        }
+        .ai-collapsible-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        .ai-collapsible-toggle {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .ai-collapsible-toggle:hover {
+            color: var(--text-primary);
+        }
+        .ai-collapsible-chevron {
+            display: inline-block;
+            font-size: 10px;
+            transition: transform 0.2s;
+        }
+        .ai-collapsible-section.ai-section-minimized .ai-collapsible-chevron {
+            transform: rotate(-90deg);
+        }
+        .ai-collapsible-body {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-height: 0;
+            overflow: auto;
+            padding: 12px;
+        }
+        .ai-collapsible-section.ai-section-minimized .ai-collapsible-body {
+            padding: 0;
+        }
+        .ai-analysis-form {
+            flex-shrink: 0;
+            padding: 12px;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+        }
+        .ai-analysis-desc {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+            line-height: 1.4;
+        }
+        .ai-analysis-row {
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .ai-analysis-row label {
+            min-width: 70px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        .ai-analysis-row input[type="text"],
+        .ai-analysis-row input[type="password"] {
+            flex: 1;
+            min-width: 200px;
+            padding: 6px 10px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 12px;
+        }
+        .ai-checkbox-label {
+            min-width: auto;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+        }
+        .ai-analysis-actions {
+            margin-top: 12px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .ai-analysis-hint {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+        .ai-analysis-result {
+            overflow-y: auto;
+            padding: 12px;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+        }
+        .ai-analysis-placeholder {
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+        .ai-analysis-loading {
+            color: var(--accent-blue);
+        }
+        .ai-analysis-output {
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .ai-analysis-output .ai-high-priority {
+            background: rgba(244, 135, 113, 0.15);
+            border-left: 4px solid var(--error-red);
+            padding: 10px 12px;
+            margin-bottom: 12px;
+            border-radius: 4px;
+        }
+        .ai-analysis-output .ai-issue-card {
+            margin-bottom: 12px;
+            padding: 10px 12px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-tertiary);
+        }
+        .ai-analysis-output .ai-issue-card.priority-high { border-left: 4px solid var(--error-red); }
+        .ai-analysis-output .ai-issue-card.priority-medium { border-left: 4px solid var(--warning-yellow); }
+        .ai-analysis-output .ai-issue-card.priority-low { border-left: 4px solid var(--accent-blue); }
+        .ai-analysis-output .ai-issue-title { font-weight: 600; margin-bottom: 4px; }
+        .ai-analysis-output .ai-issue-meta { font-size: 11px; color: var(--text-secondary); margin-bottom: 6px; }
+        .ai-analysis-output .ai-issue-summary { margin-bottom: 6px; }
+        .ai-analysis-output .ai-issue-actions { font-size: 12px; color: var(--accent-green); }
+        .ai-analysis-output .ai-issue-evidence { font-size: 11px; color: var(--text-secondary); margin-top: 6px; }
+        .ai-analysis-output .ai-issue-evidence .ai-evidence-text { font-family: monospace; word-break: break-all; }
+        .ai-analysis-output .ai-issue-root-cause { font-size: 11px; color: var(--text-secondary); margin-top: 4px; font-style: italic; }
+        .ai-analysis-error {
+            color: var(--error-red);
+            font-size: 13px;
+        }
+        .ai-chat-section { display: flex; flex-direction: column; flex: 1; min-height: 0; padding: 0; }
+        .ai-chat-hint { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; flex-shrink: 0; }
+        .ai-chat-messages { flex: 1; min-height: 120px; overflow-y: auto; margin-bottom: 10px; padding: 8px; background: var(--bg-primary); border-radius: 4px; border: 1px solid var(--border-color); }
+        .ai-chat-msg { margin-bottom: 10px; max-width: 95%; }
+        .ai-chat-msg.user { margin-left: 0; text-align: left; }
+        .ai-chat-msg.assistant { margin-left: 0; text-align: left; }
+        .ai-chat-msg-label { font-size: 10px; color: var(--text-secondary); margin-bottom: 2px; }
+        .ai-chat-msg-content { font-size: 12px; padding: 8px 10px; border-radius: 6px; white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
+        .ai-chat-msg-content p { margin: 0 0 0.5em 0; }
+        .ai-chat-msg-content p:last-child { margin-bottom: 0; }
+        .ai-chat-msg-content strong { font-weight: 600; }
+        .ai-chat-msg-content code { font-family: ui-monospace, monospace; font-size: 11px; padding: 2px 4px; border-radius: 4px; background: var(--bg-tertiary); border: 1px solid var(--border-color); }
+        .ai-chat-msg-content pre { margin: 0.5em 0; padding: 8px; border-radius: 4px; background: var(--bg-tertiary); border: 1px solid var(--border-color); overflow-x: auto; white-space: pre; }
+        .ai-chat-msg-content pre code { padding: 0; background: none; border: none; }
+        .ai-chat-msg-content ul, .ai-chat-msg-content ol { margin: 0.5em 0; padding-left: 1.25em; }
+        .ai-chat-msg-content li { margin-bottom: 0.25em; }
+        .ai-chat-msg.user .ai-chat-msg-content { background: var(--bg-tertiary); border: 1px solid var(--border-color); }
+        .ai-chat-msg.assistant .ai-chat-msg-content { background: var(--bg-secondary); border: 1px solid var(--border-color); white-space: normal; }
+        .ai-chat-input-row { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+        .ai-chat-input-row input { flex: 1; padding: 8px 10px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary); font-size: 12px; }
+        .hidden { display: none !important; }
+
         .empty-state-icon {
             font-size: 48px;
             margin-bottom: 15px;
@@ -1407,6 +1609,7 @@
                     <div class="tab" data-tab="config">📋 Configuration</div>
                     <div class="tab" data-tab="cluster">🔧 Cluster Info</div>
                     <div class="tab" data-tab="drpolicies" id="drpoliciesTab" style="display: none;">🔄 DR Policies</div>
+                    <div class="tab" data-tab="ai">🤖 AI Analysis</div>
                 </div>
 
                 <!-- Logs Tab -->
@@ -1490,6 +1693,73 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- AI Analysis Tab -->
+                <div class="tab-content" data-content="ai">
+                    <div class="ai-analysis-panel">
+                        <div class="ai-collapsible-section" data-ai-section="setup" id="aiSectionSetup">
+                            <div class="ai-collapsible-header" role="button" tabindex="0" aria-expanded="true" aria-controls="aiSectionSetupBody" id="aiSectionSetupHeader">
+                                <span class="ai-collapsible-title">AI setup</span>
+                                <button type="button" class="ai-collapsible-toggle" aria-label="Minimize section" title="Minimize section"><span class="ai-collapsible-chevron">▼</span></button>
+                            </div>
+                            <div class="ai-collapsible-body" id="aiSectionSetupBody">
+                                <div class="ai-analysis-form">
+                                    <p class="ai-analysis-desc">Analyze the loaded log bundle with an LLM to get a prioritized list of issues and recommended next steps. Your API key is sent only to the selected provider.</p>
+                                    <div class="ai-analysis-row">
+                                        <label for="aiApiKey">API Key</label>
+                                        <input type="password" id="aiApiKey" placeholder="sk-... or your provider API key" autocomplete="off">
+                                        <label class="ai-checkbox-label"><input type="checkbox" id="aiRememberKey" checked> Remember key</label>
+                                    </div>
+                                    <div class="ai-analysis-row">
+                                        <label for="aiApiUrl">API URL</label>
+                                        <input type="text" id="aiApiUrl" placeholder="https://api.openai.com/v1 (OpenAI-compatible)" value="https://api.openai.com/v1">
+                                    </div>
+                                    <div class="ai-analysis-row">
+                                        <label for="aiModel">Model</label>
+                                        <input type="text" id="aiModel" placeholder="e.g. gpt-4o-mini" value="gpt-4o-mini">
+                                    </div>
+                                    <div class="ai-analysis-actions">
+                                        <button type="button" class="btn" id="aiAnalyzeBtn" disabled>Analyze with AI</button>
+                                        <span class="ai-analysis-hint" id="aiAnalyzeHint">Load a log bundle first.</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="ai-collapsible-section" data-ai-section="results" id="aiSectionResults">
+                            <div class="ai-collapsible-header" role="button" tabindex="0" aria-expanded="true" aria-controls="aiSectionResultsBody" id="aiSectionResultsHeader">
+                                <span class="ai-collapsible-title">Analysis results</span>
+                                <button type="button" class="ai-collapsible-toggle" aria-label="Minimize section" title="Minimize section"><span class="ai-collapsible-chevron">▼</span></button>
+                            </div>
+                            <div class="ai-collapsible-body" id="aiSectionResultsBody">
+                                <div class="ai-analysis-result" id="aiAnalysisResult">
+                                    <div class="ai-analysis-placeholder" id="aiAnalysisPlaceholder">Run analysis to see results here.</div>
+                                    <div class="ai-analysis-loading hidden" id="aiAnalysisLoading">Analyzing…</div>
+                                    <div class="ai-analysis-output hidden" id="aiAnalysisOutput"></div>
+                                    <div class="ai-analysis-error hidden" id="aiAnalysisError"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="ai-collapsible-section" data-ai-section="chat" id="aiSectionChat">
+                            <div class="ai-collapsible-header" role="button" tabindex="0" aria-expanded="true" aria-controls="aiSectionChatBody" id="aiSectionChatHeader">
+                                <span class="ai-collapsible-title">Chat</span>
+                                <button type="button" class="ai-collapsible-toggle" aria-label="Minimize section" title="Minimize section"><span class="ai-collapsible-chevron">▼</span></button>
+                            </div>
+                            <div class="ai-collapsible-body" id="aiSectionChatBody">
+                                <div class="ai-chat-section">
+                                    <p class="ai-chat-hint">Ask about your logs (e.g. a pod name, error code, or keyword). Relevant excerpts with context will be sent to the model.</p>
+                                    <div class="ai-chat-messages" id="aiChatMessages"></div>
+                                    <div class="ai-chat-input-row">
+                                        <input type="text" id="aiChatInput" placeholder="Ask a question about the logs..." autocomplete="off">
+                                        <button type="button" class="btn" id="aiChatSendBtn" disabled>Send</button>
+                                        <button type="button" class="btn" id="aiChatCopyBtn">Copy</button>
+                                        <button type="button" class="btn" id="aiChatSaveBtn">Save</button>
+                                        <button type="button" class="btn" id="aiChatClearBtn">Clear chat</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -1510,7 +1780,7 @@
     <script>
 
         // Version Configuration
-        const VERSION = '1.6.4';
+        const VERSION = '1.7.0';
         const GITHUB_REPO = 'cmccuistion-hv/Hitachi-CSI-Log-Bundle';
         const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`;
         const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
@@ -1604,7 +1874,8 @@
                 'other': { count: 0, pods: [], description: 'Other errors' }
             },
             volumeOperations: [],    // { timestamp, operation, volumeId, pod, status, message }
-            connectivity: {}         // node-name -> { arrays: [], paths: {total, active, failed}, volumes: [] }
+            connectivity: {},        // node-name -> { arrays: [], paths: {total, active, failed}, volumes: [] }
+            aiChatHistory: []        // { role: 'user'|'assistant', content: string } for follow-up chat
         };
 
         // DOM Elements
@@ -1706,6 +1977,7 @@
             setupVirtualScroll();
             initializeVersion();
             setupYamlModal();
+            setupAIAnalysis();
         }
 
         // Drop Zone Setup
@@ -2821,6 +3093,455 @@
             return 'other';
         }
 
+        // Build a bounded JSON payload for AI log analysis (no full logs; summary + sampled errors only)
+        function buildAnalysisPayload(maxSampleLines) {
+            maxSampleLines = maxSampleLines != null ? maxSampleLines : 80;
+            const payload = {
+                bundle: {
+                    name: state.bundleName || '',
+                    timestamp: state.bundleTimestamp || '',
+                    clusters: state.clusters && state.clusters.length ? state.clusters : ['default']
+                },
+                environment: {},
+                keyIdentifiers: { hspcCodes: [], volumeIdsInErrors: [], arraySerialsInErrors: [] },
+                stats: state.stats ? { ...state.stats } : {},
+                errorCategories: [],
+                sampleErrorLines: [],
+                configSummary: {},
+                podHealthSummary: {},
+                nodeHealthSummary: {}
+            };
+
+            // Environment summary (platform, versions, node count, DR/replication)
+            if (state.stats) {
+                payload.environment = {
+                    platform: state.stats.platform || '-',
+                    platformVersion: state.stats.platformVersion || '-',
+                    hspcVersion: state.stats.hspcVersion || '-',
+                    hspcOperatorVersion: state.stats.hspcOperatorVersion || '-',
+                    nodeCount: state.stats.nodeCount || 0,
+                    clusterCount: (state.clusters && state.clusters.length) ? state.clusters.length : 1
+                };
+                const hasSecondary = state.clusters && state.clusters.some(function(c) { return c === 'secondary-cluster' || (c && c.indexOf('secondary') !== -1); });
+                const hasReplicationPod = state.logs && Object.keys(state.logs).some(function(pod) { return pod.indexOf('replication-operator') !== -1 || pod.indexOf('replication') !== -1; });
+                payload.environment.hasReplication = !!(hasSecondary || hasReplicationPod);
+            }
+
+            // Error categories with count > 0 (name, count, description, affected pods)
+            if (state.errorCategories && typeof state.errorCategories === 'object') {
+                for (const [name, cat] of Object.entries(state.errorCategories)) {
+                    if (cat && cat.count > 0) {
+                        payload.errorCategories.push({
+                            name,
+                            count: cat.count,
+                            description: cat.description || '',
+                            pods: (cat.pods || []).slice(0, 15)
+                        });
+                    }
+                }
+            }
+
+            // Helpers for key identifiers and line scoring
+            const hspcCodeRegex = /HSPC0x[0-9a-fA-F]+/g;
+            const volumeIdInBracketRegex = /Volume ID \[([^\]]+)\]/g;
+            function scoreLine(line) {
+                var s = 0;
+                if (line.indexOf('HSPC0x') !== -1) s += 1;
+                if (line.indexOf('Volume ID') !== -1 || line.indexOf('LdevID') !== -1 || line.indexOf('LdevId') !== -1 || line.indexOf('copy group') !== -1 || line.indexOf('copygroup') !== -1 || line.indexOf(' pair ') !== -1 || (line.indexOf('serial') !== -1 && line.indexOf('number') !== -1)) s += 1;
+                if (line.indexOf('messageId') !== -1 || line.indexOf('jobId') !== -1 || line.indexOf('"state":"Failed"') !== -1) s += 1;
+                return s;
+            }
+
+            // Collect key identifiers and candidate ERROR lines per category (for smarter sampling)
+            const hspcCodesSet = {};
+            const volumeIdsSet = {};
+            const candidatesByCategory = {};
+            if (state.logs) {
+                for (const [podName, lines] of Object.entries(state.logs)) {
+                    if (!Array.isArray(lines)) continue;
+                    for (var idx = 0; idx < lines.length; idx++) {
+                        var entry = lines[idx];
+                        if (entry.level !== 'ERROR') continue;
+                        var raw = entry.raw || entry.message || '';
+                        var cat = entry.category || 'other';
+                        if (!candidatesByCategory[cat]) candidatesByCategory[cat] = [];
+                        if (candidatesByCategory[cat].length < 15) {
+                            candidatesByCategory[cat].push({ category: cat, pod: podName, line: raw, score: scoreLine(raw), index: idx });
+                        }
+                        var m;
+                        hspcCodeRegex.lastIndex = 0;
+                        while ((m = hspcCodeRegex.exec(raw)) !== null) { hspcCodesSet[m[0]] = true; }
+                        volumeIdInBracketRegex.lastIndex = 0;
+                        while ((m = volumeIdInBracketRegex.exec(raw)) !== null) {
+                            var vid = m[1].trim();
+                            if (vid && vid !== 'Volume ID not available') volumeIdsSet[vid] = true;
+                        }
+                    }
+                }
+            }
+            payload.keyIdentifiers.hspcCodes = Object.keys(hspcCodesSet).slice(0, 30);
+            payload.keyIdentifiers.volumeIdsInErrors = Object.keys(volumeIdsSet).slice(0, 20);
+            if (state.config && state.config.volumes) {
+                var volsWithErrors = Object.keys(state.config.volumes).filter(function(v) { return state.config.volumes[v].errors > 0; });
+                volsWithErrors.slice(0, 20).forEach(function(v) { volumeIdsSet[v] = true; });
+                payload.keyIdentifiers.volumeIdsInErrors = Object.keys(volumeIdsSet).slice(0, 20);
+            }
+            if (state.config && state.config.arrays) {
+                var arraysWithErrors = Object.keys(state.config.arrays).filter(function(a) { return state.config.arrays[a].errors > 0; });
+                payload.keyIdentifiers.arraySerialsInErrors = arraysWithErrors.slice(0, 10);
+                if (payload.keyIdentifiers.arraySerialsInErrors.length === 0) {
+                    payload.keyIdentifiers.arraySerialsInErrors = Object.keys(state.config.arrays).slice(0, 10);
+                }
+            }
+
+            // Smarter sampling: per category, sort candidates by score desc then take top lines until cap
+            var totalSamples = 0;
+            if (state.errorCategories && Object.keys(candidatesByCategory).length > 0) {
+                for (var catName in state.errorCategories) {
+                    if (!state.errorCategories[catName] || state.errorCategories[catName].count === 0 || totalSamples >= maxSampleLines) continue;
+                    var candidates = candidatesByCategory[catName] || [];
+                    if (candidates.length === 0) candidates = candidatesByCategory['other'] || [];
+                    candidates.sort(function(a, b) { return (b.score - a.score) || (a.index - b.index); });
+                    var perCategoryLimit = Math.min(10, maxSampleLines - totalSamples);
+                    for (var i = 0; i < candidates.length && i < perCategoryLimit && totalSamples < maxSampleLines; i++) {
+                        payload.sampleErrorLines.push({ category: catName, pod: candidates[i].pod, line: candidates[i].line });
+                        totalSamples++;
+                    }
+                }
+            }
+            if (payload.sampleErrorLines.length === 0 && state.logs) {
+                var fallbackCandidates = [];
+                for (var podName in state.logs) {
+                    var lines = state.logs[podName];
+                    if (!Array.isArray(lines)) continue;
+                    for (var j = 0; j < lines.length && fallbackCandidates.length < 100; j++) {
+                        if (lines[j].level === 'ERROR') fallbackCandidates.push({ category: 'other', pod: podName, line: lines[j].raw || lines[j].message, score: scoreLine(lines[j].raw || lines[j].message), index: j });
+                    }
+                }
+                fallbackCandidates.sort(function(a, b) { return (b.score - a.score) || (a.index - b.index); });
+                for (var k = 0; k < fallbackCandidates.length && totalSamples < maxSampleLines; k++) {
+                    payload.sampleErrorLines.push({ category: fallbackCandidates[k].category, pod: fallbackCandidates[k].pod, line: fallbackCandidates[k].line });
+                    totalSamples++;
+                }
+            }
+
+            // Config summary (counts and names only)
+            if (state.config) {
+                const c = state.config;
+                payload.configSummary = {
+                    hostCount: Object.keys(c.hosts || {}).length,
+                    volumeCount: Object.keys(c.volumes || {}).length,
+                    arrayCount: Object.keys(c.arrays || {}).length,
+                    portCount: Object.keys(c.ports || {}).length,
+                    eventCount: (c.events || []).length,
+                    storageClassNames: (c.storageClasses || []).map(function(sc) { return sc.name; }).filter(Boolean)
+                };
+                const hostsWithErrors = c.hosts ? Object.entries(c.hosts).filter(function(e) { return e[1].errors > 0; }).map(function(e) { return e[0]; }).slice(0, 10) : [];
+                const volumesWithErrors = c.volumes ? Object.entries(c.volumes).filter(function(e) { return e[1].errors > 0; }).map(function(e) { return e[0]; }).slice(0, 10) : [];
+                if (hostsWithErrors.length) payload.configSummary.hostsWithErrors = hostsWithErrors;
+                if (volumesWithErrors.length) payload.configSummary.volumesWithErrors = volumesWithErrors;
+            }
+
+            // Cluster context excerpt (first ~100 lines or 8k chars per cluster)
+            if (state.clusterContext && typeof state.clusterContext === 'object') {
+                payload.clusterContextExcerpt = {};
+                const maxChars = 8000;
+                for (const [cluster, content] of Object.entries(state.clusterContext)) {
+                    if (!content || typeof content !== 'string') continue;
+                    const lines = content.split('\n').slice(0, 100);
+                    let excerpt = lines.join('\n');
+                    if (excerpt.length > maxChars) excerpt = excerpt.substring(0, maxChars) + '\n... (truncated)';
+                    payload.clusterContextExcerpt[cluster] = excerpt;
+                }
+            }
+
+            // Pod health summary (pods with errors/warnings)
+            if (state.podHealth && typeof state.podHealth === 'object') {
+                const podsWithErrors = [];
+                const podsWithWarnings = [];
+                for (const [pod, h] of Object.entries(state.podHealth)) {
+                    if (h.errors > 0) podsWithErrors.push({ pod, errors: h.errors, warnings: h.warnings || 0 });
+                    else if (h.warnings > 0) podsWithWarnings.push({ pod, warnings: h.warnings, errors: 0 });
+                }
+                payload.podHealthSummary = { podsWithErrors: podsWithErrors.slice(0, 30), podsWithWarnings: podsWithWarnings.slice(0, 20) };
+            }
+            if (state.nodeHealth && typeof state.nodeHealth === 'object') {
+                const nodesWithErrors = [];
+                for (const [node, h] of Object.entries(state.nodeHealth)) {
+                    if (h.errors > 0 || h.warnings > 0) nodesWithErrors.push({ node, errors: h.errors || 0, warnings: h.warnings || 0 });
+                }
+                payload.nodeHealthSummary = { nodesWithErrors: nodesWithErrors.slice(0, 20) };
+            }
+
+            return payload;
+        }
+
+        // Build system and user prompts for AI log analysis (OpenAI-compatible chat)
+        function getAnalysisPrompts(payload) {
+            var codeRefLines = [];
+            if (payload.errorCategories && payload.errorCategories.length) {
+                payload.errorCategories.forEach(function(c) { codeRefLines.push(c.name + ': ' + (c.description || '')); });
+            }
+            var codeRefStr = codeRefLines.length ? '\n\nError code reference (use when citing causes):\n' + codeRefLines.join('\n') : '';
+
+            var systemPrompt = 'You are analyzing a Hitachi CSI (HSPC) log bundle from a Kubernetes or OpenShift environment. You will receive a structured summary of errors, warnings, and configuration. Your job is to: (1) list the main issues found, (2) assign each a priority (high, medium, or low), (3) recommend the single most important thing to investigate first. Use the error category names and descriptions provided; they map to known HSPC/VSP error patterns.'
+                + ' You MUST cite specific error codes (e.g. HSPC0x...) and identifiers from the payload (keyIdentifiers, environment) in your summaries and suggestedActions when possible (e.g. "Check LDEV 13 on array 12345", "HSPC0x0000c037 indicates ..."). Give at least one concrete next step per issue where possible (e.g. a command to run or a specific resource to check). If one issue is clearly the root cause of others, say so and set rootCauseOf to that downstream category name; prioritize root causes higher.'
+                + ' Use the keyIdentifiers and environment sections when suggesting actions so answers are specific to this bundle.'
+                + codeRefStr
+                + '\n\nRespond in valid JSON with this shape: { "highPriorityIssue": "one sentence on what to check first", "issues": [ { "title": "short title", "priority": "high"|"medium"|"low", "category": "category key from the payload", "affectedPods": ["pod1", "pod2"], "summary": "brief explanation", "suggestedActions": "what to do", "evidence": "optional: one representative log snippet or error code from the payload that supports this issue", "rootCauseOf": "optional: category name of a downstream issue if this is the root cause" } ] }. evidence and rootCauseOf are optional. If there are no errors, set highPriorityIssue to "No errors detected in the summary." and issues to [].';
+
+            var userPrompt = 'Based on this log bundle summary, list the main issues and recommend the highest-priority item to investigate first. Cite error codes and identifiers from the payload when possible.\n\n' + JSON.stringify(payload, null, 2);
+            return { systemPrompt: systemPrompt, userPrompt: userPrompt };
+        }
+
+        // Call LLM API (OpenAI-compatible: /v1/chat/completions). Returns { ok, result, error }.
+        async function callAnalysisAPI(apiKey, payload, options) {
+            options = options || {};
+            const baseUrl = (options.apiUrl || 'https://api.openai.com/v1').replace(/\/$/, '');
+            const model = options.model || 'gpt-4o-mini';
+            const prompts = getAnalysisPrompts(payload);
+            const body = {
+                model: model,
+                messages: [
+                    { role: 'system', content: prompts.systemPrompt },
+                    { role: 'user', content: prompts.userPrompt }
+                ],
+                max_tokens: options.max_tokens || 8192,
+                temperature: 0.3
+            };
+            try {
+                const response = await fetch(baseUrl + '/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + apiKey
+                    },
+                    body: JSON.stringify(body)
+                });
+                let data;
+                try {
+                    data = await response.json();
+                } catch (e) {
+                    data = {};
+                }
+                if (!response.ok) {
+                    let errMsg = data.error && data.error.message ? data.error.message : (data.error || response.statusText || 'Request failed');
+                    if (response.status === 429) {
+                        errMsg = 'Rate limit exceeded (429). The free tier allows limited requests per minute. Wait a minute and try again, or try a lighter model (e.g. gemini-2.0-flash or gemini-2.5-flash-lite).';
+                    } else if (response.status === 503) {
+                        errMsg = 'Service unavailable (503). The provider may be overloaded or the request may be too large. Wait a minute and try again. If it persists, try a smaller log bundle or a different model (e.g. gemini-2.0-flash).';
+                    } else if (response.status >= 500) {
+                        errMsg = 'Server error (' + response.status + '). Try again in a few moments.';
+                    }
+                    return { ok: false, error: String(errMsg) };
+                }
+                const content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+                if (content == null) return { ok: false, error: 'No content in API response' };
+                let result = content.trim();
+                // Strip optional markdown code fence
+                const codeFence = result.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+                if (codeFence) result = codeFence[1].trim();
+                // Extract outermost JSON object (balanced braces so values containing } are handled)
+                const firstBrace = result.indexOf('{');
+                if (firstBrace !== -1) {
+                    let depth = 0;
+                    let inString = false;
+                    let escape = false;
+                    let i = firstBrace;
+                    for (; i < result.length; i++) {
+                        const c = result[i];
+                        if (escape) { escape = false; continue; }
+                        if (c === '\\' && inString) { escape = true; continue; }
+                        if (!inString && c === '"') { inString = true; continue; }
+                        if (inString && c === '"') { inString = false; continue; }
+                        if (inString) continue;
+                        if (c === '{') depth++;
+                        else if (c === '}') { depth--; if (depth === 0) break; }
+                    }
+                    if (depth === 0) {
+                        try {
+                            result = JSON.parse(result.substring(firstBrace, i + 1));
+                        } catch (e) { /* leave as string, show raw */ }
+                    }
+                }
+                return { ok: true, result: result };
+            } catch (err) {
+                return { ok: false, error: err.message || String(err) };
+            }
+        }
+
+        // Normalize log line for dedupe: strip timestamp and [pid][tid][LEVEL] prefix so same message groups together
+        var logLinePrefixRegex = /^\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+\[[^\]]+\]\[[^\]]+\]\[(?:ERROR|WARNING|INFO)\]\s*/;
+        function normalizedLogKey(raw) {
+            if (typeof raw !== 'string') return raw;
+            var m = raw.match(logLinePrefixRegex);
+            return m ? raw.substring(m[0].length) : raw.trim();
+        }
+
+        // Retrieve relevant log excerpts for chat: match query, dedupe by normalized line (with count), add context before/after each anchor
+        function getRelevantLogExcerpts(query, options) {
+            options = options || {};
+            var maxAnchorLines = options.maxAnchorLines != null ? options.maxAnchorLines : 25;
+            var contextBefore = options.contextBefore != null ? options.contextBefore : 8;
+            var contextAfter = options.contextAfter != null ? options.contextAfter : 5;
+            var maxTotalLines = options.maxTotalLines != null ? options.maxTotalLines : 180;
+            var tokens = (query || '').trim().split(/\s+/).filter(function(t) { return t.length > 0; });
+            if (tokens.length === 0) return 'No search terms. Enter a pod name, error code (e.g. HSPC0x00001002), or keyword.';
+
+            var candidates = [];
+            if (!state.logs || typeof state.logs !== 'object') return 'No logs loaded.';
+            for (var podName in state.logs) {
+                var lines = state.logs[podName];
+                if (!Array.isArray(lines)) continue;
+                for (var idx = 0; idx < lines.length; idx++) {
+                    var entry = lines[idx];
+                    var raw = entry.raw || entry.message || '';
+                    var match = false;
+                    if (tokens.length === 0) match = true;
+                    else {
+                        var rawLower = raw.toLowerCase();
+                        for (var t = 0; t < tokens.length; t++) {
+                            if (rawLower.indexOf(tokens[t].toLowerCase()) !== -1) { match = true; break; }
+                        }
+                    }
+                    if (match) {
+                        var rawLower = raw.toLowerCase();
+                        var spec = 0;
+                        for (var ti = 0; ti < tokens.length; ti++) {
+                            if (rawLower.indexOf(tokens[ti].toLowerCase()) !== -1 && tokens[ti].length > spec) spec = tokens[ti].length;
+                        }
+                        candidates.push({ pod: podName, index: idx, entry: entry, specificity: spec });
+                    }
+                }
+            }
+            if (candidates.length === 0) return 'No matching log lines found for: ' + (query || '').trim();
+
+            var levelOrder = { ERROR: 0, WARNING: 1, INFO: 2 };
+            function sortByLevelSpecTime(a, b) {
+                var la = levelOrder[a.entry.level] != null ? levelOrder[a.entry.level] : 3;
+                var lb = levelOrder[b.entry.level] != null ? levelOrder[b.entry.level] : 3;
+                if (la !== lb) return la - lb;
+                var sa = a.specificity != null ? a.specificity : 0;
+                var sb = b.specificity != null ? b.specificity : 0;
+                if (sa !== sb) return sb - sa;
+                var ta = a.entry.timestampDate && a.entry.timestampDate.getTime ? a.entry.timestampDate.getTime() : 0;
+                var tb = b.entry.timestampDate && b.entry.timestampDate.getTime ? b.entry.timestampDate.getTime() : 0;
+                return ta - tb;
+            }
+            var specificTokens = tokens.filter(function(t) { return t.length >= 6 || t.indexOf('.') !== -1 || /HSPC0x/i.test(t); });
+            var phase1 = [];
+            var phase2 = [];
+            for (var pi = 0; pi < candidates.length; pi++) {
+                var c = candidates[pi];
+                var rawLow = (c.entry.raw || c.entry.message || '').toLowerCase();
+                var hasSpecific = specificTokens.length > 0 && specificTokens.some(function(st) { return rawLow.indexOf(st.toLowerCase()) !== -1; });
+                if (hasSpecific) phase1.push(c); else phase2.push(c);
+            }
+            phase1.sort(sortByLevelSpecTime);
+            phase2.sort(sortByLevelSpecTime);
+            var phase1Info = phase1.filter(function(c) { return c.entry.level === 'INFO'; });
+            var phase1Other = phase1.filter(function(c) { return c.entry.level !== 'INFO'; });
+            var combined = [];
+            var seenKey = {};
+            var maxPhase1Info = 3;
+            var maxPhase1Total = 10;
+            for (var ii = 0; ii < phase1Info.length && combined.length < maxAnchorLines; ii++) {
+                var ki = normalizedLogKey(phase1Info[ii].entry.raw || phase1Info[ii].entry.message);
+                if (!seenKey[ki]) { seenKey[ki] = true; combined.push(phase1Info[ii]); if (combined.length >= maxPhase1Info) break; }
+            }
+            for (var io = 0; io < phase1Other.length && combined.length < maxPhase1Total && combined.length < maxAnchorLines; io++) {
+                var ko = normalizedLogKey(phase1Other[io].entry.raw || phase1Other[io].entry.message);
+                if (!seenKey[ko]) { seenKey[ko] = true; combined.push(phase1Other[io]); }
+            }
+            for (var i2 = 0; i2 < phase2.length && combined.length < maxAnchorLines; i2++) {
+                var k2 = normalizedLogKey(phase2[i2].entry.raw || phase2[i2].entry.message);
+                if (!seenKey[k2]) { seenKey[k2] = true; combined.push(phase2[i2]); }
+            }
+            candidates = combined;
+
+            var groups = {};
+            for (var i = 0; i < candidates.length; i++) {
+                var c = candidates[i];
+                var key = normalizedLogKey(c.entry.raw || c.entry.message);
+                if (!groups[key]) groups[key] = { count: 0, representative: null };
+                groups[key].count++;
+                if (!groups[key].representative) groups[key].representative = c;
+            }
+
+            var linesOut = 0;
+            var blocks = [];
+            var groupKeys = Object.keys(groups);
+            for (var g = 0; g < groupKeys.length && linesOut < maxTotalLines; g++) {
+                var k = groupKeys[g];
+                var gr = groups[k];
+                var rep = gr.representative;
+                var pod = rep.pod;
+                var idx = rep.index;
+                var arr = state.logs[pod];
+                if (!Array.isArray(arr)) continue;
+
+                var beforeStart = Math.max(0, idx - contextBefore);
+                var beforeEnd = idx;
+                var afterStart = idx + 1;
+                var afterEnd = Math.min(arr.length, idx + 1 + contextAfter);
+
+                var block = '--- Pod: ' + pod + ' (context around 1 of ' + gr.count + ' occurrence' + (gr.count !== 1 ? 's' : '') + ') ---\n';
+                for (var b = beforeStart; b < beforeEnd && linesOut < maxTotalLines; b++) {
+                    block += (arr[b].raw || arr[b].message || '') + '\n';
+                    linesOut++;
+                }
+                var anchorLine = rep.entry.raw || rep.entry.message || '';
+                block += '>>> ANCHOR' + (gr.count > 1 ? ' (occurred ' + gr.count + ' times)' : '') + ' <<<\n';
+                block += anchorLine + '\n';
+                linesOut++;
+                for (var a = afterStart; a < afterEnd && linesOut < maxTotalLines; a++) {
+                    block += (arr[a].raw || arr[a].message || '') + '\n';
+                    linesOut++;
+                }
+                blocks.push(block);
+            }
+            return blocks.join('\n');
+        }
+
+        // Generic chat API call (OpenAI-compatible messages array). Returns { ok, result, error }.
+        async function callChatAPI(apiKey, messages, options) {
+            options = options || {};
+            var baseUrl = (options.apiUrl || 'https://api.openai.com/v1').replace(/\/$/, '');
+            var model = options.model || 'gpt-4o-mini';
+            try {
+                var response = await fetch(baseUrl + '/chat/completions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+                    body: JSON.stringify({ model: model, messages: messages, max_tokens: options.max_tokens || 4096, temperature: 0.3 })
+                });
+                var data = await response.json().catch(function() { return {}; });
+                if (!response.ok) {
+                    var errMsg = data.error && data.error.message ? data.error.message : (data.error || response.statusText || 'Request failed');
+                    if (response.status === 429) errMsg = 'Rate limit exceeded (429). Wait a minute and try again.';
+                    else if (response.status === 503) errMsg = 'Service unavailable (503). Try again in a moment.';
+                    return { ok: false, error: String(errMsg) };
+                }
+                var content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+                return content != null ? { ok: true, result: String(content).trim() } : { ok: false, error: 'No content in response' };
+            } catch (err) {
+                return { ok: false, error: err.message || String(err) };
+            }
+        }
+
+        // Build messages for chat (excerpts + user question + optional history) and send
+        async function sendChatMessage(userMessage, conversationHistory, apiKey, options) {
+            var excerpts = getRelevantLogExcerpts(userMessage, { maxAnchorLines: 25, contextBefore: 8, contextAfter: 5, maxTotalLines: 180 });
+            var systemContent = 'You are helping the user interpret their Hitachi CSI (HSPC) log excerpts. Below are relevant log lines with surrounding context. Duplicate lines are summarized as (occurred N times). Answer based only on the provided excerpts and the conversation. Pay attention to INFO-level lines that match the user\'s question (e.g. file paths, config names, or specific identifiers); they often explain configuration or environment details even when no ERROR is present. When you have relevant details from the excerpts, provide specific, detailed answers and cite log evidence (e.g. quote the line that says /etc/multipath.conf does not exist).';
+            var messages = [{ role: 'system', content: systemContent }];
+            var history = conversationHistory || [];
+            var lastTurns = history.slice(-4);
+            for (var h = 0; h < lastTurns.length; h++) {
+                messages.push({ role: lastTurns[h].role, content: lastTurns[h].content });
+            }
+            messages.push({ role: 'user', content: 'Relevant log excerpts:\n\n' + excerpts + '\n\nUser question: ' + userMessage });
+            return await callChatAPI(apiKey, messages, options);
+        }
+
         // Track volume operations from CSI responses
         function trackVolumeOperation(line, timestamp, podName) {
             // Match CSI gRPC Response lines
@@ -3386,7 +4107,18 @@
             document.getElementById('bundleInfo').textContent = `${containerCount} containers loaded`;
             document.getElementById('bundleFilename').textContent = state.bundleName || '-';
             document.getElementById('bundleTimestamp').textContent = state.bundleTimestamp;
-            
+
+            // Enable/disable AI Analysis and Chat Send based on bundle loaded
+            const aiBtn = document.getElementById('aiAnalyzeBtn');
+            const aiHint = document.getElementById('aiAnalyzeHint');
+            const aiChatSendBtn = document.getElementById('aiChatSendBtn');
+            if (aiBtn && aiHint) {
+                const hasBundle = Object.keys(state.logs).length > 0;
+                aiBtn.disabled = !hasBundle;
+                aiHint.textContent = hasBundle ? 'Ready. Click Analyze to run.' : 'Load a log bundle first.';
+                if (aiChatSendBtn) aiChatSendBtn.disabled = !hasBundle;
+            }
+
             // Update time filter visibility and date limits if time filter is set up
             const timeFilterGroup = document.getElementById('timeFilterGroup');
             if (timeFilterGroup) {
@@ -7749,6 +8481,269 @@ ${escapeHtml(trimmedYAML)}
                     }
                 });
             }
+        }
+
+        const AI_STORAGE_KEY = 'hspc-viewer-ai-api-key';
+        const AI_STORAGE_URL = 'hspc-viewer-ai-api-url';
+        const AI_STORAGE_MODEL = 'hspc-viewer-ai-model';
+        const AI_MINIMIZED_STORAGE_KEY = 'hspc-viewer-ai-sections-minimized';
+
+        function setupAIAnalysis() {
+            const apiKeyInput = document.getElementById('aiApiKey');
+            const apiUrlInput = document.getElementById('aiApiUrl');
+            const modelInput = document.getElementById('aiModel');
+            const rememberCheckbox = document.getElementById('aiRememberKey');
+            const analyzeBtn = document.getElementById('aiAnalyzeBtn');
+            const placeholder = document.getElementById('aiAnalysisPlaceholder');
+            const loadingEl = document.getElementById('aiAnalysisLoading');
+            const outputEl = document.getElementById('aiAnalysisOutput');
+            const errorEl = document.getElementById('aiAnalysisError');
+
+            if (!analyzeBtn || !outputEl) return;
+
+            try {
+                if (rememberCheckbox && rememberCheckbox.checked && localStorage.getItem(AI_STORAGE_KEY)) {
+                    if (apiKeyInput) apiKeyInput.value = localStorage.getItem(AI_STORAGE_KEY);
+                }
+                var savedUrl = localStorage.getItem(AI_STORAGE_URL);
+                if (apiUrlInput && savedUrl) apiUrlInput.value = savedUrl;
+                var savedModel = localStorage.getItem(AI_STORAGE_MODEL);
+                if (modelInput && savedModel) modelInput.value = savedModel;
+            } catch (e) {}
+
+            if (rememberCheckbox) {
+                rememberCheckbox.addEventListener('change', function() {
+                    if (!rememberCheckbox.checked) {
+                        try { localStorage.removeItem(AI_STORAGE_KEY); } catch (e) {}
+                    }
+                });
+            }
+
+            analyzeBtn.addEventListener('click', async function() {
+                var key = apiKeyInput ? apiKeyInput.value.trim() : '';
+                if (!key) {
+                    alert('Please enter an API key.');
+                    return;
+                }
+                if (Object.keys(state.logs).length === 0) {
+                    alert('Load a log bundle first.');
+                    return;
+                }
+
+                placeholder.classList.add('hidden');
+                outputEl.classList.add('hidden');
+                errorEl.classList.add('hidden');
+                loadingEl.classList.remove('hidden');
+
+                var payload = buildAnalysisPayload(55);
+                var opts = {};
+                if (apiUrlInput && apiUrlInput.value.trim()) opts.apiUrl = apiUrlInput.value.trim();
+                if (modelInput && modelInput.value.trim()) opts.model = modelInput.value.trim();
+
+                var result = await callAnalysisAPI(key, payload, opts);
+
+                loadingEl.classList.add('hidden');
+
+                if (result.ok) {
+                    try {
+                        if (rememberCheckbox && rememberCheckbox.checked && apiKeyInput) {
+                            localStorage.setItem(AI_STORAGE_KEY, apiKeyInput.value);
+                        }
+                        if (apiUrlInput && apiUrlInput.value) localStorage.setItem(AI_STORAGE_URL, apiUrlInput.value);
+                        if (modelInput && modelInput.value) localStorage.setItem(AI_STORAGE_MODEL, modelInput.value);
+                    } catch (e) {}
+                    renderAnalysisResult(result.result, outputEl);
+                    outputEl.classList.remove('hidden');
+                } else {
+                    errorEl.textContent = result.error || 'Request failed';
+                    errorEl.classList.remove('hidden');
+                }
+            });
+
+            var chatMessages = document.getElementById('aiChatMessages');
+            var chatInput = document.getElementById('aiChatInput');
+            var chatSendBtn = document.getElementById('aiChatSendBtn');
+            var chatCopyBtn = document.getElementById('aiChatCopyBtn');
+            var chatSaveBtn = document.getElementById('aiChatSaveBtn');
+            var chatClearBtn = document.getElementById('aiChatClearBtn');
+            if (chatMessages && chatInput && chatSendBtn) {
+                function getChatTranscriptText() {
+                    var lines = [];
+                    var msgs = chatMessages.querySelectorAll('.ai-chat-msg');
+                    for (var i = 0; i < msgs.length; i++) {
+                        var labelEl = msgs[i].querySelector('.ai-chat-msg-label');
+                        var contentEl = msgs[i].querySelector('.ai-chat-msg-content');
+                        var label = labelEl ? labelEl.textContent.trim() : '';
+                        var content = contentEl ? contentEl.textContent.trim() : '';
+                        lines.push(label + ': ' + content);
+                    }
+                    return lines.join('\n\n');
+                }
+                function appendChatMessage(role, content) {
+                    var div = document.createElement('div');
+                    div.className = 'ai-chat-msg ' + role;
+                    var label = role === 'user' ? 'You' : 'Assistant';
+                    var bodyHtml = role === 'assistant' && typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined'
+                        ? DOMPurify.sanitize(marked.parse(content))
+                        : escapeHtml(content);
+                    div.innerHTML = '<div class="ai-chat-msg-label">' + escapeHtml(label) + '</div><div class="ai-chat-msg-content">' + bodyHtml + '</div>';
+                    chatMessages.appendChild(div);
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                }
+                if (chatCopyBtn) {
+                    chatCopyBtn.addEventListener('click', function() {
+                        var text = getChatTranscriptText();
+                        if (!text) { return; }
+                        navigator.clipboard.writeText(text).then(function() {
+                            chatCopyBtn.textContent = 'Copied!';
+                            setTimeout(function() { chatCopyBtn.textContent = 'Copy'; }, 2000);
+                        }).catch(function() { alert('Copy failed.'); });
+                    });
+                }
+                if (chatSaveBtn) {
+                    chatSaveBtn.addEventListener('click', function() {
+                        var text = getChatTranscriptText();
+                        if (!text) { return; }
+                        var now = new Date();
+                        var stamp = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0') + '-' + String(now.getHours()).padStart(2, '0') + String(now.getMinutes()).padStart(2, '0');
+                        var base = state.bundleName || '';
+                        var slug = base.replace(/^.*[/\\]/, '').replace(/\.zip$/i, '').replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+                        if (slug.length > 50) slug = slug.slice(0, 50);
+                        var filename = slug ? 'chat-transcript-' + slug + '-' + stamp + '.txt' : 'chat-transcript-' + stamp + '.txt';
+                        var blob = new Blob([text], { type: 'text/plain' });
+                        var a = document.createElement('a');
+                        a.href = URL.createObjectURL(blob);
+                        a.download = filename;
+                        a.click();
+                        URL.revokeObjectURL(a.href);
+                    });
+                }
+                if (chatClearBtn) {
+                    chatClearBtn.addEventListener('click', function() {
+                        state.aiChatHistory = [];
+                        chatMessages.innerHTML = '';
+                    });
+                }
+                chatSendBtn.addEventListener('click', doSendChat);
+                chatInput.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSendChat(); }
+                });
+                async function doSendChat() {
+                    var text = chatInput.value.trim();
+                    if (!text) return;
+                    var key = apiKeyInput ? apiKeyInput.value.trim() : '';
+                    if (!key) { alert('Please enter an API key in the form above.'); return; }
+                    if (Object.keys(state.logs).length === 0) { alert('Load a log bundle first.'); return; }
+                    chatInput.value = '';
+                    chatSendBtn.disabled = true;
+                    appendChatMessage('user', text);
+                    appendChatMessage('assistant', 'Thinking…');
+                    var opts = {};
+                    if (apiUrlInput && apiUrlInput.value.trim()) opts.apiUrl = apiUrlInput.value.trim();
+                    if (modelInput && modelInput.value.trim()) opts.model = modelInput.value.trim();
+                    var result = await sendChatMessage(text, state.aiChatHistory, key, opts);
+                    chatMessages.removeChild(chatMessages.lastChild);
+                    if (result.ok) {
+                        appendChatMessage('assistant', result.result);
+                        state.aiChatHistory.push({ role: 'user', content: text });
+                        state.aiChatHistory.push({ role: 'assistant', content: result.result });
+                    } else {
+                        appendChatMessage('assistant', 'Error: ' + (result.error || 'Request failed'));
+                    }
+                    chatSendBtn.disabled = Object.keys(state.logs).length === 0;
+                }
+            }
+
+            // Collapsible AI sections: toggle minimize/expand and persist state
+            function getMinimizedState() {
+                try {
+                    var raw = localStorage.getItem(AI_MINIMIZED_STORAGE_KEY);
+                    if (raw) {
+                        var o = JSON.parse(raw);
+                        return { setup: !!o.setup, results: !!o.results, chat: !!o.chat };
+                    }
+                } catch (e) {}
+                return { setup: false, results: false, chat: false };
+            }
+            function saveMinimizedState(minState) {
+                try {
+                    localStorage.setItem(AI_MINIMIZED_STORAGE_KEY, JSON.stringify(minState));
+                } catch (e) {}
+            }
+            function applySectionMinimized(sectionEl, minimized) {
+                var header = sectionEl.querySelector('.ai-collapsible-header');
+                var toggle = sectionEl.querySelector('.ai-collapsible-toggle');
+                if (minimized) {
+                    sectionEl.classList.add('ai-section-minimized');
+                    if (header) { header.setAttribute('aria-expanded', 'false'); }
+                    if (toggle) { toggle.setAttribute('aria-label', 'Expand section'); toggle.setAttribute('title', 'Expand section'); }
+                } else {
+                    sectionEl.classList.remove('ai-section-minimized');
+                    if (header) { header.setAttribute('aria-expanded', 'true'); }
+                    if (toggle) { toggle.setAttribute('aria-label', 'Minimize section'); toggle.setAttribute('title', 'Minimize section'); }
+                }
+            }
+            function toggleSectionMinimized(sectionKey) {
+                var sectionEl = document.querySelector('.ai-collapsible-section[data-ai-section="' + sectionKey + '"]');
+                if (!sectionEl) return;
+                var minimized = sectionEl.classList.toggle('ai-section-minimized');
+                var header = sectionEl.querySelector('.ai-collapsible-header');
+                var toggle = sectionEl.querySelector('.ai-collapsible-toggle');
+                if (header) header.setAttribute('aria-expanded', minimized ? 'false' : 'true');
+                if (toggle) {
+                    toggle.setAttribute('aria-label', minimized ? 'Expand section' : 'Minimize section');
+                    toggle.setAttribute('title', minimized ? 'Expand section' : 'Minimize section');
+                }
+                var state = getMinimizedState();
+                var minState = getMinimizedState();
+                minState[sectionKey] = minimized;
+                saveMinimizedState(minState);
+            }
+            var minimizedState = getMinimizedState();
+            ['setup', 'results', 'chat'].forEach(function(key) {
+                var sectionEl = document.querySelector('.ai-collapsible-section[data-ai-section="' + key + '"]');
+                if (!sectionEl) return;
+                applySectionMinimized(sectionEl, minimizedState[key]);
+                var header = sectionEl.querySelector('.ai-collapsible-header');
+                var toggle = sectionEl.querySelector('.ai-collapsible-toggle');
+                function doToggle(e) { e.preventDefault(); e.stopPropagation(); toggleSectionMinimized(key); }
+                if (toggle) toggle.addEventListener('click', doToggle);
+                if (header) {
+                    header.addEventListener('click', function(e) { if (!e.target.closest('.ai-collapsible-toggle')) doToggle(e); });
+                    header.addEventListener('keydown', function(e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); doToggle(e); } });
+                }
+            });
+        }
+
+        function renderAnalysisResult(result, container) {
+            if (!container) return;
+            if (typeof result === 'string') {
+                container.innerHTML = '<pre style="white-space: pre-wrap; margin: 0;">' + escapeHtml(result) + '</pre>';
+                return;
+            }
+            var html = '';
+            if (result.highPriorityIssue) {
+                html += '<div class="ai-high-priority"><strong>Highest priority</strong>: ' + escapeHtml(result.highPriorityIssue) + '</div>';
+            }
+            if (result.issues && Array.isArray(result.issues) && result.issues.length > 0) {
+                for (var i = 0; i < result.issues.length; i++) {
+                    var issue = result.issues[i];
+                    var priority = (issue.priority || 'medium').toLowerCase();
+                    if (priority !== 'high' && priority !== 'medium' && priority !== 'low') priority = 'medium';
+                    html += '<div class="ai-issue-card priority-' + priority + '">';
+                    html += '<div class="ai-issue-title">' + escapeHtml(issue.title || 'Issue ' + (i + 1)) + '</div>';
+                    var meta = [];
+                    if (issue.category) meta.push('Category: ' + escapeHtml(issue.category));
+                    if (issue.affectedPods && issue.affectedPods.length) meta.push('Pods: ' + escapeHtml(issue.affectedPods.slice(0, 5).join(', ')) + (issue.affectedPods.length > 5 ? '…' : ''));
+                    if (meta.length) html += '<div class="ai-issue-meta">' + meta.join(' · ') + '</div>';
+                    if (issue.summary) html += '<div class="ai-issue-summary">' + escapeHtml(issue.summary) + '</div>';
+                    if (issue.suggestedActions) html += '<div class="ai-issue-actions">Suggested: ' + escapeHtml(issue.suggestedActions) + '</div>';
+                    if (issue.evidence) html += '<div class="ai-issue-evidence"><strong>Evidence:</strong> <span class="ai-evidence-text">' + escapeHtml(issue.evidence) + '</span></div>';
+                    if (issue.rootCauseOf) html += '<div class="ai-issue-root-cause">Root cause of: ' + escapeHtml(issue.rootCauseOf) + '</div>';
+                    html += '</div>';
+                }
+            }
+            container.innerHTML = html || '<p class="ai-analysis-placeholder">No structured issues returned.</p>';
         }
 
         // Render DR Policies
