@@ -1017,75 +1017,44 @@
             padding: 16px;
             gap: 8px;
         }
-        .ai-collapsible-section {
+        .ai-tab-bar {
             display: flex;
-            flex-direction: column;
-            min-height: 0;
-            flex: 1 1 0;
-            background: var(--bg-secondary);
-            border-radius: 6px;
-            border: 1px solid var(--border-color);
-        }
-        .ai-collapsible-section.ai-section-minimized {
-            flex: 0 0 auto;
-        }
-        .ai-collapsible-section.ai-section-minimized .ai-collapsible-body {
-            display: none;
-        }
-        .ai-collapsible-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            height: 40px;
-            padding: 0 12px;
-            background: var(--bg-tertiary);
-            border-radius: 6px 6px 0 0;
-            cursor: pointer;
-            user-select: none;
             flex-shrink: 0;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-tertiary);
         }
-        .ai-collapsible-section.ai-section-minimized .ai-collapsible-header {
-            border-radius: 6px;
-        }
-        .ai-collapsible-header:hover {
-            background: var(--bg-hover);
-        }
-        .ai-collapsible-title {
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-        .ai-collapsible-toggle {
+        .ai-tab {
             background: none;
             border: none;
+            border-bottom: 2px solid transparent;
             color: var(--text-secondary);
             cursor: pointer;
-            padding: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            font-size: 13px;
+            font-weight: 500;
+            padding: 10px 16px;
+            margin-bottom: -1px;
+            transition: color 0.15s, border-color 0.15s;
+            white-space: nowrap;
         }
-        .ai-collapsible-toggle:hover {
+        .ai-tab:hover {
             color: var(--text-primary);
+            background: var(--bg-hover);
         }
-        .ai-collapsible-chevron {
-            display: inline-block;
-            font-size: 10px;
-            transition: transform 0.2s;
+        .ai-tab.active {
+            color: var(--accent, #4a9eff);
+            border-bottom-color: var(--accent, #4a9eff);
+            font-weight: 600;
         }
-        .ai-collapsible-section.ai-section-minimized .ai-collapsible-chevron {
-            transform: rotate(-90deg);
-        }
-        .ai-collapsible-body {
-            display: flex;
+        .ai-tab-pane {
+            display: none;
             flex-direction: column;
-            flex: 1;
+            flex: 1 1 0;
             min-height: 0;
             overflow: auto;
             padding: 12px;
         }
-        .ai-collapsible-section.ai-section-minimized .ai-collapsible-body {
-            padding: 0;
+        .ai-tab-pane.active {
+            display: flex;
         }
         .ai-analysis-form {
             flex-shrink: 0;
@@ -1697,64 +1666,51 @@
                 <!-- AI Analysis Tab -->
                 <div class="tab-content" data-content="ai">
                     <div class="ai-analysis-panel">
-                        <div class="ai-collapsible-section" data-ai-section="setup" id="aiSectionSetup">
-                            <div class="ai-collapsible-header" role="button" tabindex="0" aria-expanded="true" aria-controls="aiSectionSetupBody" id="aiSectionSetupHeader">
-                                <span class="ai-collapsible-title">AI setup</span>
-                                <button type="button" class="ai-collapsible-toggle" aria-label="Minimize section" title="Minimize section"><span class="ai-collapsible-chevron">▼</span></button>
-                            </div>
-                            <div class="ai-collapsible-body" id="aiSectionSetupBody">
-                                <div class="ai-analysis-form">
-                                    <p class="ai-analysis-desc">Analyze the loaded log bundle with an LLM to get a prioritized list of issues and recommended next steps. Your API key is sent only to the selected provider.</p>
-                                    <div class="ai-analysis-row">
-                                        <label for="aiApiKey">API Key</label>
-                                        <input type="password" id="aiApiKey" placeholder="sk-... or your provider API key" autocomplete="off">
-                                        <label class="ai-checkbox-label"><input type="checkbox" id="aiRememberKey" checked> Remember key</label>
-                                    </div>
-                                    <div class="ai-analysis-row">
-                                        <label for="aiApiUrl">API URL</label>
-                                        <input type="text" id="aiApiUrl" placeholder="https://api.openai.com/v1 (OpenAI-compatible)" value="https://api.openai.com/v1">
-                                    </div>
-                                    <div class="ai-analysis-row">
-                                        <label for="aiModel">Model</label>
-                                        <input type="text" id="aiModel" placeholder="e.g. gpt-4o-mini" value="gpt-4o-mini">
-                                    </div>
-                                    <div class="ai-analysis-actions">
-                                        <button type="button" class="btn" id="aiAnalyzeBtn" disabled>Analyze with AI</button>
-                                        <span class="ai-analysis-hint" id="aiAnalyzeHint">Load a log bundle first.</span>
-                                    </div>
+                        <div class="ai-tab-bar">
+                            <button type="button" class="ai-tab" data-tab="setup">Setup</button>
+                            <button type="button" class="ai-tab" data-tab="results">Analysis</button>
+                            <button type="button" class="ai-tab" data-tab="chat">Chat</button>
+                        </div>
+                        <div class="ai-tab-pane" data-tab-pane="setup" id="aiTabSetup">
+                            <div class="ai-analysis-form">
+                                <p class="ai-analysis-desc">Analyze the loaded log bundle with an LLM to get a prioritized list of issues and recommended next steps. Your API key is sent only to the selected provider.</p>
+                                <div class="ai-analysis-row">
+                                    <label for="aiApiKey">API Key</label>
+                                    <input type="password" id="aiApiKey" placeholder="sk-... or your provider API key" autocomplete="off">
+                                    <label class="ai-checkbox-label"><input type="checkbox" id="aiRememberKey" checked> Remember key</label>
+                                </div>
+                                <div class="ai-analysis-row">
+                                    <label for="aiApiUrl">API URL</label>
+                                    <input type="text" id="aiApiUrl" placeholder="https://api.openai.com/v1 (OpenAI-compatible)" value="https://api.openai.com/v1">
+                                </div>
+                                <div class="ai-analysis-row">
+                                    <label for="aiModel">Model</label>
+                                    <input type="text" id="aiModel" placeholder="e.g. gpt-4o-mini" value="gpt-4o-mini">
                                 </div>
                             </div>
                         </div>
-                        <div class="ai-collapsible-section" data-ai-section="results" id="aiSectionResults">
-                            <div class="ai-collapsible-header" role="button" tabindex="0" aria-expanded="true" aria-controls="aiSectionResultsBody" id="aiSectionResultsHeader">
-                                <span class="ai-collapsible-title">Analysis results</span>
-                                <button type="button" class="ai-collapsible-toggle" aria-label="Minimize section" title="Minimize section"><span class="ai-collapsible-chevron">▼</span></button>
+                        <div class="ai-tab-pane" data-tab-pane="results" id="aiTabResults">
+                            <div class="ai-analysis-actions" style="margin-bottom: 12px;">
+                                <button type="button" class="btn" id="aiAnalyzeBtn" disabled>Analyze with AI</button>
+                                <span class="ai-analysis-hint" id="aiAnalyzeHint">Load a log bundle first.</span>
                             </div>
-                            <div class="ai-collapsible-body" id="aiSectionResultsBody">
-                                <div class="ai-analysis-result" id="aiAnalysisResult">
-                                    <div class="ai-analysis-placeholder" id="aiAnalysisPlaceholder">Run analysis to see results here.</div>
-                                    <div class="ai-analysis-loading hidden" id="aiAnalysisLoading">Analyzing…</div>
-                                    <div class="ai-analysis-output hidden" id="aiAnalysisOutput"></div>
-                                    <div class="ai-analysis-error hidden" id="aiAnalysisError"></div>
-                                </div>
+                            <div class="ai-analysis-result" id="aiAnalysisResult">
+                                <div class="ai-analysis-placeholder" id="aiAnalysisPlaceholder">Run analysis to see results here.</div>
+                                <div class="ai-analysis-loading hidden" id="aiAnalysisLoading">Analyzing…</div>
+                                <div class="ai-analysis-output hidden" id="aiAnalysisOutput"></div>
+                                <div class="ai-analysis-error hidden" id="aiAnalysisError"></div>
                             </div>
                         </div>
-                        <div class="ai-collapsible-section" data-ai-section="chat" id="aiSectionChat">
-                            <div class="ai-collapsible-header" role="button" tabindex="0" aria-expanded="true" aria-controls="aiSectionChatBody" id="aiSectionChatHeader">
-                                <span class="ai-collapsible-title">Chat</span>
-                                <button type="button" class="ai-collapsible-toggle" aria-label="Minimize section" title="Minimize section"><span class="ai-collapsible-chevron">▼</span></button>
-                            </div>
-                            <div class="ai-collapsible-body" id="aiSectionChatBody">
-                                <div class="ai-chat-section">
-                                    <p class="ai-chat-hint">Ask about your logs (e.g. a pod name, error code, or keyword). Relevant excerpts with context will be sent to the model.</p>
-                                    <div class="ai-chat-messages" id="aiChatMessages"></div>
-                                    <div class="ai-chat-input-row">
-                                        <input type="text" id="aiChatInput" placeholder="Ask a question about the logs..." autocomplete="off">
-                                        <button type="button" class="btn" id="aiChatSendBtn" disabled>Send</button>
-                                        <button type="button" class="btn" id="aiChatCopyBtn">Copy</button>
-                                        <button type="button" class="btn" id="aiChatSaveBtn">Save</button>
-                                        <button type="button" class="btn" id="aiChatClearBtn">Clear chat</button>
-                                    </div>
+                        <div class="ai-tab-pane" data-tab-pane="chat" id="aiTabChat">
+                            <div class="ai-chat-section">
+                                <p class="ai-chat-hint">Ask about your logs (e.g. a pod name, error code, or keyword). Relevant excerpts with context will be sent to the model.</p>
+                                <div class="ai-chat-messages" id="aiChatMessages"></div>
+                                <div class="ai-chat-input-row">
+                                    <input type="text" id="aiChatInput" placeholder="Ask a question about the logs..." autocomplete="off">
+                                    <button type="button" class="btn" id="aiChatSendBtn" disabled>Send</button>
+                                    <button type="button" class="btn" id="aiChatCopyBtn">Copy</button>
+                                    <button type="button" class="btn" id="aiChatSaveBtn">Save</button>
+                                    <button type="button" class="btn" id="aiChatClearBtn">Clear chat</button>
                                 </div>
                             </div>
                         </div>
@@ -3093,9 +3049,20 @@
             return 'other';
         }
 
+        // Rough token estimate: GPT/Claude tokenize at ~4 chars per token on average
+        function estimateTokens(text) {
+            return Math.ceil((text || '').length / 4);
+        }
+
+        // Format a token count as a human-readable string (e.g. "~6.2k tokens")
+        function formatTokenEstimate(n) {
+            if (n >= 1000) return '~' + (n / 1000).toFixed(1) + 'k tokens';
+            return '~' + n + ' tokens';
+        }
+
         // Build a bounded JSON payload for AI log analysis (no full logs; summary + sampled errors only)
         function buildAnalysisPayload(maxSampleLines) {
-            maxSampleLines = maxSampleLines != null ? maxSampleLines : 80;
+            maxSampleLines = maxSampleLines != null ? maxSampleLines : 200;
             const payload = {
                 bundle: {
                     name: state.bundleName || '',
@@ -3135,7 +3102,7 @@
                             name,
                             count: cat.count,
                             description: cat.description || '',
-                            pods: (cat.pods || []).slice(0, 15)
+                            pods: (cat.pods || []).slice(0, 25)
                         });
                     }
                 }
@@ -3165,7 +3132,7 @@
                         var raw = entry.raw || entry.message || '';
                         var cat = entry.category || 'other';
                         if (!candidatesByCategory[cat]) candidatesByCategory[cat] = [];
-                        if (candidatesByCategory[cat].length < 15) {
+                        if (candidatesByCategory[cat].length < 30) {
                             candidatesByCategory[cat].push({ category: cat, pod: podName, line: raw, score: scoreLine(raw), index: idx });
                         }
                         var m;
@@ -3179,18 +3146,18 @@
                     }
                 }
             }
-            payload.keyIdentifiers.hspcCodes = Object.keys(hspcCodesSet).slice(0, 30);
-            payload.keyIdentifiers.volumeIdsInErrors = Object.keys(volumeIdsSet).slice(0, 20);
+            payload.keyIdentifiers.hspcCodes = Object.keys(hspcCodesSet).slice(0, 60);
+            payload.keyIdentifiers.volumeIdsInErrors = Object.keys(volumeIdsSet).slice(0, 40);
             if (state.config && state.config.volumes) {
                 var volsWithErrors = Object.keys(state.config.volumes).filter(function(v) { return state.config.volumes[v].errors > 0; });
-                volsWithErrors.slice(0, 20).forEach(function(v) { volumeIdsSet[v] = true; });
-                payload.keyIdentifiers.volumeIdsInErrors = Object.keys(volumeIdsSet).slice(0, 20);
+                volsWithErrors.slice(0, 40).forEach(function(v) { volumeIdsSet[v] = true; });
+                payload.keyIdentifiers.volumeIdsInErrors = Object.keys(volumeIdsSet).slice(0, 40);
             }
             if (state.config && state.config.arrays) {
                 var arraysWithErrors = Object.keys(state.config.arrays).filter(function(a) { return state.config.arrays[a].errors > 0; });
-                payload.keyIdentifiers.arraySerialsInErrors = arraysWithErrors.slice(0, 10);
+                payload.keyIdentifiers.arraySerialsInErrors = arraysWithErrors.slice(0, 20);
                 if (payload.keyIdentifiers.arraySerialsInErrors.length === 0) {
-                    payload.keyIdentifiers.arraySerialsInErrors = Object.keys(state.config.arrays).slice(0, 10);
+                    payload.keyIdentifiers.arraySerialsInErrors = Object.keys(state.config.arrays).slice(0, 20);
                 }
             }
 
@@ -3202,7 +3169,7 @@
                     var candidates = candidatesByCategory[catName] || [];
                     if (candidates.length === 0) candidates = candidatesByCategory['other'] || [];
                     candidates.sort(function(a, b) { return (b.score - a.score) || (a.index - b.index); });
-                    var perCategoryLimit = Math.min(10, maxSampleLines - totalSamples);
+                    var perCategoryLimit = Math.min(20, maxSampleLines - totalSamples);
                     for (var i = 0; i < candidates.length && i < perCategoryLimit && totalSamples < maxSampleLines; i++) {
                         payload.sampleErrorLines.push({ category: catName, pod: candidates[i].pod, line: candidates[i].line });
                         totalSamples++;
@@ -3236,19 +3203,19 @@
                     eventCount: (c.events || []).length,
                     storageClassNames: (c.storageClasses || []).map(function(sc) { return sc.name; }).filter(Boolean)
                 };
-                const hostsWithErrors = c.hosts ? Object.entries(c.hosts).filter(function(e) { return e[1].errors > 0; }).map(function(e) { return e[0]; }).slice(0, 10) : [];
-                const volumesWithErrors = c.volumes ? Object.entries(c.volumes).filter(function(e) { return e[1].errors > 0; }).map(function(e) { return e[0]; }).slice(0, 10) : [];
+                const hostsWithErrors = c.hosts ? Object.entries(c.hosts).filter(function(e) { return e[1].errors > 0; }).map(function(e) { return e[0]; }).slice(0, 20) : [];
+                const volumesWithErrors = c.volumes ? Object.entries(c.volumes).filter(function(e) { return e[1].errors > 0; }).map(function(e) { return e[0]; }).slice(0, 20) : [];
                 if (hostsWithErrors.length) payload.configSummary.hostsWithErrors = hostsWithErrors;
                 if (volumesWithErrors.length) payload.configSummary.volumesWithErrors = volumesWithErrors;
             }
 
-            // Cluster context excerpt (first ~100 lines or 8k chars per cluster)
+            // Cluster context excerpt (first ~250 lines or 25k chars per cluster)
             if (state.clusterContext && typeof state.clusterContext === 'object') {
                 payload.clusterContextExcerpt = {};
-                const maxChars = 8000;
+                const maxChars = 25000;
                 for (const [cluster, content] of Object.entries(state.clusterContext)) {
                     if (!content || typeof content !== 'string') continue;
-                    const lines = content.split('\n').slice(0, 100);
+                    const lines = content.split('\n').slice(0, 250);
                     let excerpt = lines.join('\n');
                     if (excerpt.length > maxChars) excerpt = excerpt.substring(0, maxChars) + '\n... (truncated)';
                     payload.clusterContextExcerpt[cluster] = excerpt;
@@ -3263,14 +3230,14 @@
                     if (h.errors > 0) podsWithErrors.push({ pod, errors: h.errors, warnings: h.warnings || 0 });
                     else if (h.warnings > 0) podsWithWarnings.push({ pod, warnings: h.warnings, errors: 0 });
                 }
-                payload.podHealthSummary = { podsWithErrors: podsWithErrors.slice(0, 30), podsWithWarnings: podsWithWarnings.slice(0, 20) };
+                payload.podHealthSummary = { podsWithErrors: podsWithErrors.slice(0, 50), podsWithWarnings: podsWithWarnings.slice(0, 30) };
             }
             if (state.nodeHealth && typeof state.nodeHealth === 'object') {
                 const nodesWithErrors = [];
                 for (const [node, h] of Object.entries(state.nodeHealth)) {
                     if (h.errors > 0 || h.warnings > 0) nodesWithErrors.push({ node, errors: h.errors || 0, warnings: h.warnings || 0 });
                 }
-                payload.nodeHealthSummary = { nodesWithErrors: nodesWithErrors.slice(0, 20) };
+                payload.nodeHealthSummary = { nodesWithErrors: nodesWithErrors.slice(0, 30) };
             }
 
             return payload;
@@ -3381,10 +3348,10 @@
         // Retrieve relevant log excerpts for chat: match query, dedupe by normalized line (with count), add context before/after each anchor
         function getRelevantLogExcerpts(query, options) {
             options = options || {};
-            var maxAnchorLines = options.maxAnchorLines != null ? options.maxAnchorLines : 25;
-            var contextBefore = options.contextBefore != null ? options.contextBefore : 8;
-            var contextAfter = options.contextAfter != null ? options.contextAfter : 5;
-            var maxTotalLines = options.maxTotalLines != null ? options.maxTotalLines : 180;
+            var maxAnchorLines = options.maxAnchorLines != null ? options.maxAnchorLines : 60;
+            var contextBefore = options.contextBefore != null ? options.contextBefore : 12;
+            var contextAfter = options.contextAfter != null ? options.contextAfter : 8;
+            var maxTotalLines = options.maxTotalLines != null ? options.maxTotalLines : 600;
             var tokens = (query || '').trim().split(/\s+/).filter(function(t) { return t.length > 0; });
             if (tokens.length === 0) return 'No search terms. Enter a pod name, error code (e.g. HSPC0x00001002), or keyword.';
 
@@ -3469,9 +3436,12 @@
             }
 
             var linesOut = 0;
+            var anchorsOut = 0;
             var blocks = [];
             var groupKeys = Object.keys(groups);
-            for (var g = 0; g < groupKeys.length && linesOut < maxTotalLines; g++) {
+            // anchorsOut is the primary gate (ensures all matched anchors appear when possible);
+            // linesOut < maxTotalLines is a safety ceiling on total context volume only.
+            for (var g = 0; g < groupKeys.length && anchorsOut < maxAnchorLines && linesOut < maxTotalLines; g++) {
                 var k = groupKeys[g];
                 var gr = groups[k];
                 var rep = gr.representative;
@@ -3486,7 +3456,7 @@
                 var afterEnd = Math.min(arr.length, idx + 1 + contextAfter);
 
                 var block = '--- Pod: ' + pod + ' (context around 1 of ' + gr.count + ' occurrence' + (gr.count !== 1 ? 's' : '') + ') ---\n';
-                for (var b = beforeStart; b < beforeEnd && linesOut < maxTotalLines; b++) {
+                for (var b = beforeStart; b < beforeEnd; b++) {
                     block += (arr[b].raw || arr[b].message || '') + '\n';
                     linesOut++;
                 }
@@ -3494,7 +3464,8 @@
                 block += '>>> ANCHOR' + (gr.count > 1 ? ' (occurred ' + gr.count + ' times)' : '') + ' <<<\n';
                 block += anchorLine + '\n';
                 linesOut++;
-                for (var a = afterStart; a < afterEnd && linesOut < maxTotalLines; a++) {
+                anchorsOut++;
+                for (var a = afterStart; a < afterEnd; a++) {
                     block += (arr[a].raw || arr[a].message || '') + '\n';
                     linesOut++;
                 }
@@ -3512,7 +3483,7 @@
                 var response = await fetch(baseUrl + '/chat/completions', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
-                    body: JSON.stringify({ model: model, messages: messages, max_tokens: options.max_tokens || 4096, temperature: 0.3 })
+                    body: JSON.stringify({ model: model, messages: messages, max_tokens: options.max_tokens || 8192, temperature: 0.3 })
                 });
                 var data = await response.json().catch(function() { return {}; });
                 if (!response.ok) {
@@ -3530,16 +3501,19 @@
 
         // Build messages for chat (excerpts + user question + optional history) and send
         async function sendChatMessage(userMessage, conversationHistory, apiKey, options) {
-            var excerpts = getRelevantLogExcerpts(userMessage, { maxAnchorLines: 25, contextBefore: 8, contextAfter: 5, maxTotalLines: 180 });
+            var excerpts = getRelevantLogExcerpts(userMessage, { maxAnchorLines: 60, contextBefore: 12, contextAfter: 8, maxTotalLines: 600 });
+            var excerptTokens = estimateTokens(excerpts);
             var systemContent = 'You are helping the user interpret their Hitachi CSI (HSPC) log excerpts. Below are relevant log lines with surrounding context. Duplicate lines are summarized as (occurred N times). Answer based only on the provided excerpts and the conversation. Pay attention to INFO-level lines that match the user\'s question (e.g. file paths, config names, or specific identifiers); they often explain configuration or environment details even when no ERROR is present. When you have relevant details from the excerpts, provide specific, detailed answers and cite log evidence (e.g. quote the line that says /etc/multipath.conf does not exist).';
             var messages = [{ role: 'system', content: systemContent }];
             var history = conversationHistory || [];
-            var lastTurns = history.slice(-4);
+            var lastTurns = history.slice(-10);
             for (var h = 0; h < lastTurns.length; h++) {
                 messages.push({ role: lastTurns[h].role, content: lastTurns[h].content });
             }
             messages.push({ role: 'user', content: 'Relevant log excerpts:\n\n' + excerpts + '\n\nUser question: ' + userMessage });
-            return await callChatAPI(apiKey, messages, options);
+            var apiResult = await callChatAPI(apiKey, messages, options);
+            apiResult.excerptTokens = excerptTokens;
+            return apiResult;
         }
 
         // Track volume operations from CSI responses
@@ -8486,7 +8460,7 @@ ${escapeHtml(trimmedYAML)}
         const AI_STORAGE_KEY = 'hspc-viewer-ai-api-key';
         const AI_STORAGE_URL = 'hspc-viewer-ai-api-url';
         const AI_STORAGE_MODEL = 'hspc-viewer-ai-model';
-        const AI_MINIMIZED_STORAGE_KEY = 'hspc-viewer-ai-sections-minimized';
+        const AI_ACTIVE_TAB_KEY = 'hspc-viewer-ai-active-tab';
 
         function setupAIAnalysis() {
             const apiKeyInput = document.getElementById('aiApiKey');
@@ -8535,7 +8509,11 @@ ${escapeHtml(trimmedYAML)}
                 errorEl.classList.add('hidden');
                 loadingEl.classList.remove('hidden');
 
-                var payload = buildAnalysisPayload(55);
+                var payload = buildAnalysisPayload();
+                var payloadJson = JSON.stringify(payload, null, 2);
+                var payloadTokens = estimateTokens(payloadJson);
+                var analyzeHintEl = document.getElementById('aiAnalyzeHint');
+                if (analyzeHintEl) analyzeHintEl.textContent = 'Sending ' + formatTokenEstimate(payloadTokens) + ' to model…';
                 var opts = {};
                 if (apiUrlInput && apiUrlInput.value.trim()) opts.apiUrl = apiUrlInput.value.trim();
                 if (modelInput && modelInput.value.trim()) opts.model = modelInput.value.trim();
@@ -8543,6 +8521,7 @@ ${escapeHtml(trimmedYAML)}
                 var result = await callAnalysisAPI(key, payload, opts);
 
                 loadingEl.classList.add('hidden');
+                if (analyzeHintEl) analyzeHintEl.textContent = result.ok ? 'Sent ' + formatTokenEstimate(payloadTokens) + ' to model.' : 'Analysis failed.';
 
                 if (result.ok) {
                     try {
@@ -8554,6 +8533,7 @@ ${escapeHtml(trimmedYAML)}
                     } catch (e) {}
                     renderAnalysisResult(result.result, outputEl);
                     outputEl.classList.remove('hidden');
+                    setActiveTab('results');
                 } else {
                     errorEl.textContent = result.error || 'Request failed';
                     errorEl.classList.remove('hidden');
@@ -8568,16 +8548,11 @@ ${escapeHtml(trimmedYAML)}
             var chatClearBtn = document.getElementById('aiChatClearBtn');
             if (chatMessages && chatInput && chatSendBtn) {
                 function getChatTranscriptText() {
-                    var lines = [];
-                    var msgs = chatMessages.querySelectorAll('.ai-chat-msg');
-                    for (var i = 0; i < msgs.length; i++) {
-                        var labelEl = msgs[i].querySelector('.ai-chat-msg-label');
-                        var contentEl = msgs[i].querySelector('.ai-chat-msg-content');
-                        var label = labelEl ? labelEl.textContent.trim() : '';
-                        var content = contentEl ? contentEl.textContent.trim() : '';
-                        lines.push(label + ': ' + content);
-                    }
-                    return lines.join('\n\n');
+                    if (!state.aiChatHistory || !state.aiChatHistory.length) return '';
+                    return state.aiChatHistory.map(function(msg) {
+                        var label = msg.role === 'user' ? '**You**' : '**Assistant**';
+                        return label + '\n\n' + msg.content;
+                    }).join('\n\n---\n\n');
                 }
                 function appendChatMessage(role, content) {
                     var div = document.createElement('div');
@@ -8609,8 +8584,8 @@ ${escapeHtml(trimmedYAML)}
                         var base = state.bundleName || '';
                         var slug = base.replace(/^.*[/\\]/, '').replace(/\.zip$/i, '').replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
                         if (slug.length > 50) slug = slug.slice(0, 50);
-                        var filename = slug ? 'chat-transcript-' + slug + '-' + stamp + '.txt' : 'chat-transcript-' + stamp + '.txt';
-                        var blob = new Blob([text], { type: 'text/plain' });
+                        var filename = slug ? 'chat-transcript-' + slug + '-' + stamp + '.md' : 'chat-transcript-' + stamp + '.md';
+                        var blob = new Blob([text], { type: 'text/markdown' });
                         var a = document.createElement('a');
                         a.href = URL.createObjectURL(blob);
                         a.download = filename;
@@ -8636,6 +8611,7 @@ ${escapeHtml(trimmedYAML)}
                     if (Object.keys(state.logs).length === 0) { alert('Load a log bundle first.'); return; }
                     chatInput.value = '';
                     chatSendBtn.disabled = true;
+                    setActiveTab('chat');
                     appendChatMessage('user', text);
                     appendChatMessage('assistant', 'Thinking…');
                     var opts = {};
@@ -8643,75 +8619,39 @@ ${escapeHtml(trimmedYAML)}
                     if (modelInput && modelInput.value.trim()) opts.model = modelInput.value.trim();
                     var result = await sendChatMessage(text, state.aiChatHistory, key, opts);
                     chatMessages.removeChild(chatMessages.lastChild);
+                    var chatHintEl = document.querySelector('.ai-chat-hint');
                     if (result.ok) {
                         appendChatMessage('assistant', result.result);
                         state.aiChatHistory.push({ role: 'user', content: text });
                         state.aiChatHistory.push({ role: 'assistant', content: result.result });
+                        if (chatHintEl && result.excerptTokens != null) {
+                            chatHintEl.textContent = 'Last request sent ' + formatTokenEstimate(result.excerptTokens) + ' of log excerpts to the model.';
+                        }
                     } else {
                         appendChatMessage('assistant', 'Error: ' + (result.error || 'Request failed'));
+                        if (chatHintEl && result.excerptTokens != null) {
+                            chatHintEl.textContent = 'Last request sent ' + formatTokenEstimate(result.excerptTokens) + ' of log excerpts to the model.';
+                        }
                     }
                     chatSendBtn.disabled = Object.keys(state.logs).length === 0;
                 }
             }
 
-            // Collapsible AI sections: toggle minimize/expand and persist state
-            function getMinimizedState() {
-                try {
-                    var raw = localStorage.getItem(AI_MINIMIZED_STORAGE_KEY);
-                    if (raw) {
-                        var o = JSON.parse(raw);
-                        return { setup: !!o.setup, results: !!o.results, chat: !!o.chat };
-                    }
-                } catch (e) {}
-                return { setup: false, results: false, chat: false };
+            // AI tab switching
+            function setActiveTab(key) {
+                document.querySelectorAll('.ai-tab').forEach(function(btn) {
+                    btn.classList.toggle('active', btn.getAttribute('data-tab') === key);
+                });
+                document.querySelectorAll('.ai-tab-pane').forEach(function(pane) {
+                    pane.classList.toggle('active', pane.getAttribute('data-tab-pane') === key);
+                });
+                try { localStorage.setItem(AI_ACTIVE_TAB_KEY, key); } catch (e) {}
             }
-            function saveMinimizedState(minState) {
-                try {
-                    localStorage.setItem(AI_MINIMIZED_STORAGE_KEY, JSON.stringify(minState));
-                } catch (e) {}
-            }
-            function applySectionMinimized(sectionEl, minimized) {
-                var header = sectionEl.querySelector('.ai-collapsible-header');
-                var toggle = sectionEl.querySelector('.ai-collapsible-toggle');
-                if (minimized) {
-                    sectionEl.classList.add('ai-section-minimized');
-                    if (header) { header.setAttribute('aria-expanded', 'false'); }
-                    if (toggle) { toggle.setAttribute('aria-label', 'Expand section'); toggle.setAttribute('title', 'Expand section'); }
-                } else {
-                    sectionEl.classList.remove('ai-section-minimized');
-                    if (header) { header.setAttribute('aria-expanded', 'true'); }
-                    if (toggle) { toggle.setAttribute('aria-label', 'Minimize section'); toggle.setAttribute('title', 'Minimize section'); }
-                }
-            }
-            function toggleSectionMinimized(sectionKey) {
-                var sectionEl = document.querySelector('.ai-collapsible-section[data-ai-section="' + sectionKey + '"]');
-                if (!sectionEl) return;
-                var minimized = sectionEl.classList.toggle('ai-section-minimized');
-                var header = sectionEl.querySelector('.ai-collapsible-header');
-                var toggle = sectionEl.querySelector('.ai-collapsible-toggle');
-                if (header) header.setAttribute('aria-expanded', minimized ? 'false' : 'true');
-                if (toggle) {
-                    toggle.setAttribute('aria-label', minimized ? 'Expand section' : 'Minimize section');
-                    toggle.setAttribute('title', minimized ? 'Expand section' : 'Minimize section');
-                }
-                var state = getMinimizedState();
-                var minState = getMinimizedState();
-                minState[sectionKey] = minimized;
-                saveMinimizedState(minState);
-            }
-            var minimizedState = getMinimizedState();
-            ['setup', 'results', 'chat'].forEach(function(key) {
-                var sectionEl = document.querySelector('.ai-collapsible-section[data-ai-section="' + key + '"]');
-                if (!sectionEl) return;
-                applySectionMinimized(sectionEl, minimizedState[key]);
-                var header = sectionEl.querySelector('.ai-collapsible-header');
-                var toggle = sectionEl.querySelector('.ai-collapsible-toggle');
-                function doToggle(e) { e.preventDefault(); e.stopPropagation(); toggleSectionMinimized(key); }
-                if (toggle) toggle.addEventListener('click', doToggle);
-                if (header) {
-                    header.addEventListener('click', function(e) { if (!e.target.closest('.ai-collapsible-toggle')) doToggle(e); });
-                    header.addEventListener('keydown', function(e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); doToggle(e); } });
-                }
+            var savedTab = 'setup';
+            try { savedTab = localStorage.getItem(AI_ACTIVE_TAB_KEY) || 'setup'; } catch (e) {}
+            setActiveTab(savedTab);
+            document.querySelectorAll('.ai-tab').forEach(function(btn) {
+                btn.addEventListener('click', function() { setActiveTab(btn.getAttribute('data-tab')); });
             });
         }
 
