@@ -6735,91 +6735,135 @@
 
         function renderClusterInfo() {
             let html = '';
-            
-            // Handle both old format (string) and new format (object with cluster keys)
-            if (typeof state.clusterContext === 'string') {
-                // Old format - single cluster
-                const sections = parseClusterSections(state.clusterContext);
-                const filteredSections = sections.filter(s => s.title !== 'Recent Events');
-                html += filteredSections.map((section, index) => `
-                    <div class="context-section">
+            let sectionIndex = 0;
+
+            // Known top-level section titles written by the collection scripts.
+            // Used to detect when pod sub-sections end and a real section begins.
+            const KNOWN_SECTION_TITLES = new Set([
+                'Log Collection Script Version', 'Cluster Version', 'Orchestration Platform',
+                'Node OS & Runtime Information', 'HSPC CR',
+                'Deployments', 'All Deployments', 'DaemonSets', 'All DaemonSets',
+                'ReplicaSets', 'All ReplicaSets', 'HSPC StorageClasses', 'HSPC Versions',
+                'DR Operator and HRPC Versions', 'Pod Ownership Chain', 'Pod Descriptions',
+                'Recent Events', 'LocalVolumes', 'RemoteVolumes', 'Replications',
+                'DRPolicies', 'ReplicationGroups', 'Note', 'HRPC Replication Operator Deployments'
+            ]);
+
+            // Build a single collapsed section element.
+            // lastItem=true sets margin-bottom: 0 so the last nested section sits flush
+            // against its parent's border with no extra gap.
+            function buildSection(idx, title, contentHtml, showCopy, lastItem) {
+                const copyBtn = showCopy
+                    ? `<button class="copy-section-btn" onclick="copySectionContent(${idx}, event)" title="Copy to clipboard">📋 Copy</button>`
+                    : '';
+                const outerStyle = lastItem ? ' style="margin-bottom: 0;"' : '';
+                return `
+                    <div class="context-section"${outerStyle}>
                         <div class="context-header">
-                            <span onclick="toggleSection(${index})" style="cursor: pointer; flex: 1;">${section.title}</span>
+                            <span onclick="toggleSection(${idx})" style="cursor: pointer; flex: 1;">${title}</span>
                             <div class="context-header-controls">
-                                <button class="copy-section-btn" onclick="copySectionContent(${index}, event)" title="Copy to clipboard">📋 Copy</button>
-                                <span class="toggle-icon" id="toggle-${index}" onclick="toggleSection(${index})" style="cursor: pointer;">▼</span>
+                                ${copyBtn}
+                                <span class="toggle-icon collapsed" id="toggle-${idx}" onclick="toggleSection(${idx})" style="cursor: pointer;">▼</span>
                             </div>
                         </div>
-                        <div class="context-content" id="content-${index}">${escapeHtml(section.content)}</div>
-                    </div>
-                `).join('');
+                        <div class="context-content collapsed" id="content-${idx}">${contentHtml}</div>
+                    </div>`;
+            }
+
+            // Render a filtered sections array with pod-grouping and optional multipath.
+            function renderSectionsList(sections, clusterName) {
+                let out = '';
+                let i = 0;
+                while (i < sections.length) {
+                    const section = sections[i];
+
+                    // "Pod Descriptions" from the script has no content of its own;
+                    // individual pod names follow as separate === sections until the
+                    // next known top-level section.
+                    if (section.title === 'Pod Descriptions' && !section.content.trim()) {
+                        const podSections = [];
+                        let j = i + 1;
+                        while (j < sections.length && !KNOWN_SECTION_TITLES.has(sections[j].title)) {
+                            podSections.push(sections[j]);
+                            j++;
+                        }
+                        if (podSections.length > 0) {
+                            const parentIdx = sectionIndex++;
+                            let podsHtml = '';
+                            for (let k = 0; k < podSections.length; k++) {
+                                const pod = podSections[k];
+                                const podIdx = sectionIndex++;
+                                // Last item has no bottom margin so it sits flush against the parent border
+                                podsHtml += buildSection(podIdx, escapeHtml(pod.title), escapeHtml(pod.content), true, k === podSections.length - 1);
+                            }
+                            // Parent: collapsed by default; inner sections expand inside it.
+                            out += `
+                                <div class="context-section">
+                                    <div class="context-header">
+                                        <span onclick="toggleSection(${parentIdx})" style="cursor: pointer; flex: 1;">Pod Descriptions (${podSections.length})</span>
+                                        <div class="context-header-controls">
+                                            <span class="toggle-icon collapsed" id="toggle-${parentIdx}" onclick="toggleSection(${parentIdx})" style="cursor: pointer;">▼</span>
+                                        </div>
+                                    </div>
+                                    <div class="context-content collapsed" id="content-${parentIdx}" style="max-height: none; overflow: visible; padding: 0; background: transparent; white-space: normal;">${podsHtml}</div>
+                                </div>`;
+                            i = j;
+                            continue;
+                        }
+                    }
+
+                    // Normal section — collapsed by default.
+                    const idx = sectionIndex++;
+                    out += buildSection(idx, escapeHtml(section.title), escapeHtml(section.content), true);
+                    i++;
+                }
+
+                // Multipath section for this cluster (matches standard section style exactly).
+                if (clusterName) {
+                    const mpData = state.multipath[clusterName];
+                    if (mpData && Object.keys(mpData).length > 0) {
+                        const mpParentIdx = sectionIndex++;
+                        let mpNodesHtml = '';
+                        const mpEntries = Object.entries(mpData).sort(([a], [b]) => a.localeCompare(b));
+                        mpEntries.forEach(([nodeName, content], k) => {
+                            const nodeIdx = sectionIndex++;
+                            mpNodesHtml += buildSection(nodeIdx, escapeHtml(nodeName), escapeHtml(content.trim()), true, k === mpEntries.length - 1);
+                        });
+                        out += `
+                            <div class="context-section">
+                                <div class="context-header">
+                                    <span onclick="toggleSection(${mpParentIdx})" style="cursor: pointer; flex: 1;">Multipath Configuration</span>
+                                    <div class="context-header-controls">
+                                        <span class="toggle-icon collapsed" id="toggle-${mpParentIdx}" onclick="toggleSection(${mpParentIdx})" style="cursor: pointer;">▼</span>
+                                    </div>
+                                </div>
+                                <div class="context-content collapsed" id="content-${mpParentIdx}" style="max-height: none; overflow: visible; padding: 0; background: transparent; white-space: normal;">${mpNodesHtml}</div>
+                            </div>`;
+                    }
+                }
+
+                return out;
+            }
+
+            if (typeof state.clusterContext === 'string') {
+                const sections = parseClusterSections(state.clusterContext).filter(s => s.title !== 'Recent Events');
+                html += renderSectionsList(sections, null);
             } else if (typeof state.clusterContext === 'object' && state.clusterContext !== null) {
-                // New format - multiple clusters
-                let sectionIndex = 0;
                 let clustersToShow = [];
                 try {
-                    clustersToShow = state.currentCluster 
-                        ? [state.currentCluster]  // Show only selected cluster
-                        : Object.keys(state.clusterContext);  // Show all clusters
+                    clustersToShow = state.currentCluster
+                        ? [state.currentCluster]
+                        : Object.keys(state.clusterContext);
                 } catch (e) {
                     console.error('Error getting cluster keys:', e);
-                    clustersToShow = [];
                 }
-                
+
                 for (const clusterName of clustersToShow) {
                     const clusterContent = state.clusterContext[clusterName];
                     if (!clusterContent) continue;
-                    
                     html += `<div class="context-section" style="margin-bottom: 20px;"><h3 style="color: var(--accent-blue); margin-bottom: 10px;">Cluster: ${clusterName}</h3>`;
-                    const sections = parseClusterSections(clusterContent);
-                    const filteredSections = sections.filter(s => s.title !== 'Recent Events');
-                    html += filteredSections.map((section) => {
-                        const idx = sectionIndex++;
-                        return `
-                            <div class="context-section">
-                                <div class="context-header">
-                                    <span onclick="toggleSection(${idx})" style="cursor: pointer; flex: 1;">${section.title}</span>
-                                    <div class="context-header-controls">
-                                        <button class="copy-section-btn" onclick="copySectionContent(${idx}, event)" title="Copy to clipboard">📋 Copy</button>
-                                        <span class="toggle-icon" id="toggle-${idx}" onclick="toggleSection(${idx})" style="cursor: pointer;">▼</span>
-                                    </div>
-                                </div>
-                                <div class="context-content" id="content-${idx}">${escapeHtml(section.content)}</div>
-                            </div>
-                        `;
-                    }).join('');
-
-                    // Append multipath section if data was collected for this cluster
-                    const multipathNodes = state.multipath[clusterName];
-                    if (multipathNodes && Object.keys(multipathNodes).length > 0) {
-                        const mpIdx = sectionIndex++;
-                        let mpNodeHtml = '';
-                        Object.entries(multipathNodes).sort(([a], [b]) => a.localeCompare(b)).forEach(([nodeName, content]) => {
-                            const nodeIdx = sectionIndex++;
-                            mpNodeHtml += `
-                                <div class="context-section" style="margin-left: 16px;">
-                                    <div class="context-header">
-                                        <span onclick="toggleSection(${nodeIdx})" style="cursor: pointer; flex: 1;">${escapeHtml(nodeName)}</span>
-                                        <div class="context-header-controls">
-                                            <button class="copy-section-btn" onclick="copySectionContent(${nodeIdx}, event)" title="Copy to clipboard">📋 Copy</button>
-                                            <span class="toggle-icon" id="toggle-${nodeIdx}" onclick="toggleSection(${nodeIdx})" style="cursor: pointer;">▼</span>
-                                        </div>
-                                    </div>
-                                    <div class="context-content" id="content-${nodeIdx}" style="padding: 0;"><pre style="margin: 0; padding: 12px; font-size: 12px; white-space: pre-wrap; word-break: break-all;">${escapeHtml(content.trim())}</pre></div>
-                                </div>`;
-                        });
-                        html += `
-                            <div class="context-section">
-                                <div class="context-header">
-                                    <span onclick="toggleSection(${mpIdx})" style="cursor: pointer; flex: 1;">Multipath Configuration</span>
-                                    <div class="context-header-controls">
-                                        <span class="toggle-icon" id="toggle-${mpIdx}" onclick="toggleSection(${mpIdx})" style="cursor: pointer;">▼</span>
-                                    </div>
-                                </div>
-                                <div class="context-content" id="content-${mpIdx}">${mpNodeHtml}</div>
-                            </div>`;
-                    }
-
+                    const sections = parseClusterSections(clusterContent).filter(s => s.title !== 'Recent Events');
+                    html += renderSectionsList(sections, clusterName);
                     html += `</div>`;
                 }
             }
