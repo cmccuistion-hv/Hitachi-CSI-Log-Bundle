@@ -1746,6 +1746,7 @@
             logs: {},
             allLogs: [],  // Pre-concatenated logs for "all pods" view (performance optimization)
             clusterContext: {},
+            multipath: {},  // Per-cluster, per-node multipath data: { cluster: { nodeName: content } }
             clusters: [],
             currentCluster: null,  // null = all clusters, or specific cluster name
             currentPod: 'all',
@@ -2133,11 +2134,12 @@
                         if (zipEntry.dir) continue;
                         if (filename.includes('errors.log')) continue;
                         
-                        // Check if it's a log file or cluster-context
+                        // Check if it's a log file, cluster-context, or multipath data
                         const isLogFile = filename.endsWith('.log');
                         const isClusterContext = filename.includes('cluster-context');
+                        const isMultipath = filename.includes('/multipath/') && filename.endsWith('.txt');
                         
-                        if (isLogFile || isClusterContext) {
+                        if (isLogFile || isClusterContext || isMultipath) {
                             try {
                                 const content = await zipEntry.async('string');
                                 
@@ -2151,7 +2153,7 @@
                                     cluster = 'secondary-cluster';
                                 }
                                 
-                                files.push({ name, content, cluster, path: filename });
+                                files.push({ name, content, cluster, path: filename, isMultipath });
                             } catch (e) {
                                 console.error('Error reading file content for', filename, ':', e);
                             }
@@ -2189,20 +2191,22 @@
             
             for (const file of files) {
                 console.log('Checking file:', file.name, 'webkitRelativePath:', file.webkitRelativePath);
-                if ((file.name.endsWith('.log') && file.name !== 'errors.log') || file.name.includes('cluster-context')) {
+                const relativePath = file.webkitRelativePath || file.name;
+                const isMultipath = relativePath.includes('/multipath/') && file.name.endsWith('.txt');
+                if ((file.name.endsWith('.log') && file.name !== 'errors.log') || file.name.includes('cluster-context') || isMultipath) {
                     const content = await file.text();
                     
                     // Extract cluster name from path
                     let cluster = null;
-                    if (file.webkitRelativePath) {
-                        if (file.webkitRelativePath.includes('primary-cluster/')) {
+                    if (relativePath) {
+                        if (relativePath.includes('primary-cluster/')) {
                             cluster = 'primary-cluster';
-                        } else if (file.webkitRelativePath.includes('secondary-cluster/')) {
+                        } else if (relativePath.includes('secondary-cluster/')) {
                             cluster = 'secondary-cluster';
                         }
                     }
                     
-                    fileContents.push({ name: file.name, content, cluster, path: file.webkitRelativePath || file.name });
+                    fileContents.push({ name: file.name, content, cluster, path: relativePath, isMultipath });
                 }
             }
             
@@ -2260,6 +2264,7 @@
                 
                 state.logs = {};
                 state.clusterContext = {};
+                state.multipath = {};
                 state.clusters = [];
             state.inferredYear = null;  // Reset year inference for new bundle
             state.disabledContainers = new Set();  // Reset disabled containers for new bundle
@@ -2360,6 +2365,18 @@
                     }
                 }
                 
+                // Process multipath files
+                if (files && Array.isArray(files)) {
+                    for (const file of files) {
+                        if (file && file.isMultipath && file.content) {
+                            const cluster = file.cluster || 'default';
+                            const nodeName = file.name.replace(/\.txt$/, '');
+                            if (!state.multipath[cluster]) state.multipath[cluster] = {};
+                            state.multipath[cluster][nodeName] = file.content;
+                        }
+                    }
+                }
+
                 // Process log files
                 if (files && Array.isArray(files)) {
                     for (const file of files) {
@@ -5390,7 +5407,26 @@
                 ? Object.fromEntries(Object.entries(state.config.arrays).filter(([_, array]) => configBelongsToCluster(array)))
                 : state.config.arrays;
             
-            const hostCount = Object.keys(filteredHosts).length;
+            // Deduplicate hosts by Kubernetes node — each node can have multiple WWPNs/WWNNs
+            const nodeGroups = {};
+            for (const host of Object.values(filteredHosts)) {
+                const nodeId = host.nodeId || 'unknown';
+                if (!nodeGroups[nodeId]) {
+                    nodeGroups[nodeId] = { nodeId, wwpns: new Set(), wwnns: new Set(), pods: new Set(), errors: 0, warnings: 0 };
+                }
+                if (host.wwpn) nodeGroups[nodeId].wwpns.add(host.wwpn);
+                if (host.wwnn) nodeGroups[nodeId].wwnns.add(host.wwnn);
+                if (host.nodes) host.nodes.forEach(n => nodeGroups[nodeId].pods.add(n));
+                nodeGroups[nodeId].errors += (host.errors || 0);
+                nodeGroups[nodeId].warnings += (host.warnings || 0);
+            }
+            const hostCount = Object.keys(nodeGroups).length;
+
+            // Multipath data for current cluster
+            const mpCluster = state.currentCluster || Object.keys(state.multipath)[0] || null;
+            const mpNodes = mpCluster ? (state.multipath[mpCluster] || {}) :
+                Object.values(state.multipath).reduce((acc, nodes) => Object.assign(acc, nodes), {});
+            const multipathNodeCount = Object.keys(mpNodes).length;
             const volumeCount = Object.keys(filteredVolumes).length;
             const storageClassCount = filteredStorageClasses.length;
             
@@ -5514,7 +5550,7 @@
                         <div class="config-card-value">${storageClassCount}</div>
                     </div>
                     <div class="config-card clickable-card" onclick="scrollToSection('hosts-wwns-section')" title="Click to view Hosts & WWNs">
-                        <div class="config-card-title">Total Hosts (WWNs)</div>
+                        <div class="config-card-title">Nodes (WWN)</div>
                         <div class="config-card-value">${hostCount}</div>
                     </div>
                     <div class="config-card clickable-card" onclick="scrollToSection('volumes-section')" title="Click to view Volumes & LUN Mappings">
@@ -5524,6 +5560,10 @@
                     <div class="config-card clickable-card" onclick="scrollToSection('ports-section')" title="Click to view Port Usage Summary">
                         <div class="config-card-title">Storage Ports Used</div>
                         <div class="config-card-value">${portCount}</div>
+                    </div>
+                    <div class="config-card ${multipathNodeCount > 0 ? 'clickable-card' : ''}" ${multipathNodeCount > 0 ? "onclick=\"scrollToSection('hosts-wwns-section')\"" : ''} title="${multipathNodeCount > 0 ? 'Click to view Multipath configurations' : 'Collect with --collect-multipath'}">
+                        <div class="config-card-title">Multipath Configs</div>
+                        <div class="config-card-value" style="${multipathNodeCount === 0 ? 'color: var(--text-secondary); font-size: 16px;' : ''}">${multipathNodeCount > 0 ? multipathNodeCount : '—'}</div>
                     </div>
                 </div>
             `;
@@ -5625,58 +5665,77 @@
 
             // Hosts & WWNs Table
             if (hostCount > 0) {
+                const clusterPrefix = state.currentCluster ? state.currentCluster + '/' : null;
+                const sortedNodes = Object.values(nodeGroups).sort((a, b) => a.nodeId.localeCompare(b.nodeId));
+                let nodeRowIndex = 0;
+
                 html += `
                     <div id="hosts-wwns-section" class="config-section">
                         <div class="config-section-header">
                             <span>🔌 Hosts & WWNs</span>
-                            <span class="config-section-count">${hostCount} hosts</span>
+                            <span class="config-section-count">${hostCount} node${hostCount !== 1 ? 's' : ''}</span>
                         </div>
                         <table class="config-table">
                             <thead>
                                 <tr>
-                                    <th>Host Number</th>
-                                    <th>WWPN</th>
-                                    <th>WWNN</th>
                                     <th>Kubernetes Node</th>
-                                    <th>Pod</th>
-                                    <th>Status</th>
+                                    <th>WWPN(s)</th>
+                                    <th>WWNN(s)</th>
+                                    <th>Pod(s)</th>
+                                    <th>Multipath</th>
                                 </tr>
                             </thead>
                             <tbody>
                 `;
 
-                const sortedHosts = Object.values(filteredHosts).sort((a, b) => 
-                    parseInt(a.hostNumber) - parseInt(b.hostNumber)
-                );
+                for (const node of sortedNodes) {
+                    const rowClass = node.errors > 0 ? 'row-with-error' : (node.warnings > 0 ? 'row-with-warning' : '');
+                    const displayPods = Array.from(node.pods).map(pod =>
+                        clusterPrefix && pod && pod.startsWith(clusterPrefix) ? pod.substring(clusterPrefix.length) : pod
+                    ).join(', ');
+                    const wwpnList = Array.from(node.wwpns).map(w => `<span class="wwn-code">${w}</span>`).join('<br>');
+                    const wwnnList = Array.from(node.wwnns).map(w => `<span class="wwn-code">${w}</span>`).join('<br>');
 
-                for (const host of sortedHosts) {
-                    // Remove cluster prefix from pod names for display (consistent with other views)
-                    const clusterPrefix = state.currentCluster ? state.currentCluster + '/' : null;
-                    const displayPods = Array.from(host.nodes).map(pod => {
-                        if (clusterPrefix && pod && typeof pod === 'string' && pod.startsWith(clusterPrefix)) {
-                            return pod.substring(clusterPrefix.length);
-                        }
-                        return pod;
-                    });
-                    const pods = displayPods.join(', ');
-                    const nodeName = host.nodeId || '-';
-                    const rowClass = host.errors > 0 ? 'row-with-error' : (host.warnings > 0 ? 'row-with-warning' : '');
-                    
-                    let statusBadges = '';
-                    if (host.errors > 0) statusBadges += `<span class="issue-badge error-badge">${host.errors} ERROR${host.errors > 1 ? 'S' : ''}</span>`;
-                    if (host.warnings > 0) statusBadges += `<span class="issue-badge warning-badge">${host.warnings} WARNING${host.warnings > 1 ? 'S' : ''}</span>`;
-                    if (!statusBadges) statusBadges = '<span style="color: var(--text-secondary); font-size: 11px;">OK</span>';
-
-                    html += `
-                        <tr class="${rowClass}">
-                            <td><strong>${host.hostNumber}</strong></td>
-                            <td><span class="wwn-code">${host.wwpn}</span></td>
-                            <td><span class="wwn-code">${host.wwnn}</span></td>
-                            <td>${nodeName !== '-' ? `<span class="node-badge">${nodeName}</span>` : '-'}</td>
-                            <td style="font-size: 11px; color: var(--text-secondary);">${pods}</td>
-                            <td>${statusBadges}</td>
-                        </tr>
-                    `;
+                    const mpContent = mpNodes[node.nodeId];
+                    let mpCell;
+                    if (mpContent) {
+                        const confMatch = mpContent.match(/=== \/etc\/multipath\.conf ===([\s\S]*?)(?==== multipath -ll ===|$)/);
+                        const llMatch = mpContent.match(/=== multipath -ll ===([\s\S]*?)$/);
+                        const confText = confMatch ? confMatch[1].trim() : '';
+                        const llText = llMatch ? llMatch[1].trim() : '';
+                        const detailId = 'mp-detail-' + nodeRowIndex;
+                        mpCell = `<span class="issue-badge" style="background: var(--accent-blue); color: #fff; cursor: default;">Found</span>
+                            <button class="copy-section-btn" style="margin-left: 6px;" onclick="(function(id){var el=document.getElementById(id);el.style.display=el.style.display==='none'?'table-row':'none';}('${detailId}'))">View</button>`;
+                        html += `
+                            <tr class="${rowClass}">
+                                <td><span class="node-badge">${escapeHtml(node.nodeId)}</span></td>
+                                <td>${wwpnList || '-'}</td>
+                                <td>${wwnnList || '-'}</td>
+                                <td style="font-size: 11px; color: var(--text-secondary);">${escapeHtml(displayPods)}</td>
+                                <td style="white-space: nowrap;">${mpCell}</td>
+                            </tr>
+                            <tr id="${detailId}" style="display:none;">
+                                <td colspan="5" style="padding: 0; background: var(--bg-primary);">
+                                    <div style="padding: 0; border-top: 1px solid var(--border-color);">
+                                        <div style="padding: 6px 14px; font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-color);">/etc/multipath.conf</div>
+                                        <pre style="margin: 0; padding: 10px 14px; font-size: 12px; white-space: pre-wrap; word-break: break-all; max-height: 260px; overflow-y: auto;">${confText ? escapeHtml(confText) : '<span style="color:var(--text-secondary);font-style:italic;">(not found)</span>'}</pre>
+                                        <div style="padding: 6px 14px; font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; background: var(--bg-secondary); border-top: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color);">multipath -ll</div>
+                                        <pre style="margin: 0; padding: 10px 14px; font-size: 12px; white-space: pre-wrap; word-break: break-all; max-height: 260px; overflow-y: auto;">${llText ? escapeHtml(llText) : '<span style="color:var(--text-secondary);font-style:italic;">(not available)</span>'}</pre>
+                                    </div>
+                                </td>
+                            </tr>`;
+                    } else {
+                        mpCell = `<span style="color: var(--text-secondary); font-size: 11px;">—</span>`;
+                        html += `
+                            <tr class="${rowClass}">
+                                <td><span class="node-badge">${escapeHtml(node.nodeId)}</span></td>
+                                <td>${wwpnList || '-'}</td>
+                                <td>${wwnnList || '-'}</td>
+                                <td style="font-size: 11px; color: var(--text-secondary);">${escapeHtml(displayPods)}</td>
+                                <td>${mpCell}</td>
+                            </tr>`;
+                    }
+                    nodeRowIndex++;
                 }
 
                 html += `
@@ -6729,6 +6788,38 @@
                             </div>
                         `;
                     }).join('');
+
+                    // Append multipath section if data was collected for this cluster
+                    const multipathNodes = state.multipath[clusterName];
+                    if (multipathNodes && Object.keys(multipathNodes).length > 0) {
+                        const mpIdx = sectionIndex++;
+                        let mpNodeHtml = '';
+                        Object.entries(multipathNodes).sort(([a], [b]) => a.localeCompare(b)).forEach(([nodeName, content]) => {
+                            const nodeIdx = sectionIndex++;
+                            mpNodeHtml += `
+                                <div class="context-section" style="margin-left: 16px;">
+                                    <div class="context-header">
+                                        <span onclick="toggleSection(${nodeIdx})" style="cursor: pointer; flex: 1;">${escapeHtml(nodeName)}</span>
+                                        <div class="context-header-controls">
+                                            <button class="copy-section-btn" onclick="copySectionContent(${nodeIdx}, event)" title="Copy to clipboard">📋 Copy</button>
+                                            <span class="toggle-icon" id="toggle-${nodeIdx}" onclick="toggleSection(${nodeIdx})" style="cursor: pointer;">▼</span>
+                                        </div>
+                                    </div>
+                                    <div class="context-content" id="content-${nodeIdx}" style="padding: 0;"><pre style="margin: 0; padding: 12px; font-size: 12px; white-space: pre-wrap; word-break: break-all;">${escapeHtml(content.trim())}</pre></div>
+                                </div>`;
+                        });
+                        html += `
+                            <div class="context-section">
+                                <div class="context-header">
+                                    <span onclick="toggleSection(${mpIdx})" style="cursor: pointer; flex: 1;">Multipath Configuration</span>
+                                    <div class="context-header-controls">
+                                        <span class="toggle-icon" id="toggle-${mpIdx}" onclick="toggleSection(${mpIdx})" style="cursor: pointer;">▼</span>
+                                    </div>
+                                </div>
+                                <div class="context-content" id="content-${mpIdx}">${mpNodeHtml}</div>
+                            </div>`;
+                    }
+
                     html += `</div>`;
                 }
             }
