@@ -6759,11 +6759,11 @@
                 const outerStyle = lastItem ? ' style="margin-bottom: 0;"' : '';
                 return `
                     <div class="context-section"${outerStyle}>
-                        <div class="context-header">
-                            <span onclick="toggleSection(${idx})" style="cursor: pointer; flex: 1;">${title}</span>
+                        <div class="context-header" onclick="toggleSection(${idx})" style="cursor: pointer;">
+                            <span style="flex: 1;">${title}</span>
                             <div class="context-header-controls">
                                 ${copyBtn}
-                                <span class="toggle-icon collapsed" id="toggle-${idx}" onclick="toggleSection(${idx})" style="cursor: pointer;">▼</span>
+                                <span class="toggle-icon collapsed" id="toggle-${idx}">▼</span>
                             </div>
                         </div>
                         <div class="context-content collapsed" id="content-${idx}">${contentHtml}</div>
@@ -6799,10 +6799,10 @@
                             // Parent: collapsed by default; inner sections expand inside it.
                             out += `
                                 <div class="context-section">
-                                    <div class="context-header">
-                                        <span onclick="toggleSection(${parentIdx})" style="cursor: pointer; flex: 1;">Pod Descriptions (${podSections.length})</span>
+                                    <div class="context-header" onclick="toggleSection(${parentIdx})" style="cursor: pointer;">
+                                        <span style="flex: 1;">Pod Descriptions (${podSections.length})</span>
                                         <div class="context-header-controls">
-                                            <span class="toggle-icon collapsed" id="toggle-${parentIdx}" onclick="toggleSection(${parentIdx})" style="cursor: pointer;">▼</span>
+                                            <span class="toggle-icon collapsed" id="toggle-${parentIdx}">▼</span>
                                         </div>
                                     </div>
                                     <div class="context-content collapsed" id="content-${parentIdx}" style="max-height: none; overflow: visible; padding: 0; background: transparent; white-space: normal;">${podsHtml}</div>
@@ -6831,10 +6831,10 @@
                         });
                         out += `
                             <div class="context-section">
-                                <div class="context-header">
-                                    <span onclick="toggleSection(${mpParentIdx})" style="cursor: pointer; flex: 1;">Multipath Configuration</span>
+                                <div class="context-header" onclick="toggleSection(${mpParentIdx})" style="cursor: pointer;">
+                                    <span style="flex: 1;">Multipath Configuration</span>
                                     <div class="context-header-controls">
-                                        <span class="toggle-icon collapsed" id="toggle-${mpParentIdx}" onclick="toggleSection(${mpParentIdx})" style="cursor: pointer;">▼</span>
+                                        <span class="toggle-icon collapsed" id="toggle-${mpParentIdx}">▼</span>
                                     </div>
                                 </div>
                                 <div class="context-content collapsed" id="content-${mpParentIdx}" style="max-height: none; overflow: visible; padding: 0; background: transparent; white-space: normal;">${mpNodesHtml}</div>
