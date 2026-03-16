@@ -84,7 +84,7 @@ TIMEOUT_SEC=300
 MUST_GATHER_TIMEOUT_SEC=1800
 COLLECT_MTC=false
 COLLECT_MTV=false
-COLLECT_MULTIPATH=false
+COLLECT_MULTIPATH=true
 
 # Multipath collection: short-lived Job per node (requires create/delete Jobs in HSPC namespace)
 MULTIPATH_JOB_IMAGE="${MULTIPATH_JOB_IMAGE:-ubuntu:22.04}"
@@ -868,7 +868,7 @@ while [[ $# -gt 0 ]]; do
         -n|--namespace) NAMESPACE="$2"; shift 2 ;;
         -d|--dir)     OUTPUT_DIR="$2"; shift 2 ;;
         --no-compress) COMPRESS=false; shift ;;
-        --collect-multipath) COLLECT_MULTIPATH=true; shift ;;
+        --no-multipath) COLLECT_MULTIPATH=false; shift ;;
         --mtc)        COLLECT_MTC=true; shift ;;
         --mtv)        COLLECT_MTV=true; shift ;;
         -h|--help)
@@ -881,8 +881,7 @@ Usage: ./get_hitachicsilogs.sh [options]
   -n <ns>                      Force namespace
   -d <dir>                     Output dir
   --no-compress                No zip
-  --collect-multipath          Collect /etc/multipath.conf and multipath -ll from each node
-                               (creates short-lived Jobs; requires create/delete Jobs in HSPC namespace)
+  --no-multipath               Skip multipath collection (/etc/multipath.conf and multipath -ll per node)
   --mtc                        Run oc adm must-gather for Migration Toolkit for Containers
                                (OpenShift + oc required; skipped with warning if not detected)
   --mtv                        Run oc adm must-gather for Migration Toolkit for Virtualization

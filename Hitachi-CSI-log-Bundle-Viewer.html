@@ -3239,7 +3239,7 @@
                 }
             }
 
-            // Multipath config excerpts (per-node /etc/multipath.conf and multipath -ll from --collect-multipath)
+            // Multipath config excerpts (per-node /etc/multipath.conf and multipath -ll; collected by default, use --no-multipath to skip)
             if (state.multipath && typeof state.multipath === 'object') {
                 payload.multipathExcerpt = {};
                 const maxCharsPerNode = 12000;
@@ -5604,7 +5604,7 @@
                         <div class="config-card-title">Storage Ports Used</div>
                         <div class="config-card-value">${portCount}</div>
                     </div>
-                    <div class="config-card ${multipathNodeCount > 0 ? 'clickable-card' : ''}" ${multipathNodeCount > 0 ? "onclick=\"scrollToSection('hosts-wwns-section')\"" : ''} title="${multipathNodeCount > 0 ? 'Click to view Multipath configurations' : 'Collect with --collect-multipath'}">
+                    <div class="config-card ${multipathNodeCount > 0 ? 'clickable-card' : ''}" ${multipathNodeCount > 0 ? "onclick=\"scrollToSection('hosts-wwns-section')\"" : ''} title="${multipathNodeCount > 0 ? 'Click to view Multipath configurations' : 'Multipath collected by default; use --no-multipath to skip'}">
                         <div class="config-card-title">Multipath Configs</div>
                         <div class="config-card-value" style="${multipathNodeCount === 0 ? 'color: var(--text-secondary); font-size: 16px;' : ''}">${multipathNodeCount > 0 ? multipathNodeCount : '—'}</div>
                     </div>

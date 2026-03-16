@@ -20,9 +20,9 @@
     Output directory (default: ./hspc-csi-logs-YYYYMMDD-HHMMSS)
 .PARAMETER NoCompress
     Skip zip file creation
-.PARAMETER CollectMultipath
-    Collect /etc/multipath.conf and multipath -ll from each node via short-lived Jobs.
-    Requires create/delete Jobs in the HSPC namespace.
+.PARAMETER NoCollectMultipath
+    Skip multipath collection (/etc/multipath.conf and multipath -ll from each node).
+    Multipath is collected by default.
 .PARAMETER Mtc
     Run oc adm must-gather for Migration Toolkit for Containers.
     Requires OpenShift and oc to be available; skipped with a warning if not detected.
@@ -66,7 +66,7 @@ param(
     [string]$Namespace = "",
     [string]$Dir = "",
     [switch]$NoCompress,
-    [switch]$CollectMultipath,
+    [switch]$NoCollectMultipath,
     [switch]$Mtc,
     [switch]$Mtv,
     [Alias("h")]
@@ -186,8 +186,7 @@ Usage: ./get_hitachicsilogs.ps1 [options]
   -Namespace <ns>              Force namespace
   -Dir <dir>                   Output dir
   -NoCompress                  No zip
-  -CollectMultipath            Collect /etc/multipath.conf and multipath -ll from each node
-                               (creates short-lived Jobs; requires create/delete Jobs in HSPC namespace)
+  -NoCollectMultipath          Skip multipath collection (/etc/multipath.conf and multipath -ll per node)
   -Mtc                         Run oc adm must-gather for Migration Toolkit for Containers
                                Requires OpenShift and oc; skipped with warning if not available
   -Mtv                         Run oc adm must-gather for Migration Toolkit for Virtualization
@@ -1196,7 +1195,7 @@ function Get-FromCluster {
         Log "WARNING: Failed to create cluster-context.txt"
     }
     
-    if ($CollectMultipath -and $clusterNamespace) {
+    if (-not $NoCollectMultipath -and $clusterNamespace) {
         if ($script:Cancelled) {
             $Kubeconfig = $savedKubeconfig
             return
