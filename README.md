@@ -108,6 +108,11 @@ A comprehensive log collection tool for Hitachi CSI drivers running in Kubernete
 ./get_hitachicsilogs.sh --mtc --mtv
 ```
 
+**Collect multipath configuration from each node** (creates short-lived Jobs; requires create/delete Jobs in HSPC namespace):
+```bash
+./get_hitachicsilogs.sh --collect-multipath
+```
+
 **View help**:
 ```bash
 ./get_hitachicsilogs.sh -h
@@ -184,6 +189,11 @@ sed -i 's/\r$//' get_hitachicsilogs.sh
 .\get_hitachicsilogs.ps1 -Mtc -Mtv
 ```
 
+**Collect multipath configuration from each node** (creates short-lived Jobs; requires create/delete Jobs in HSPC namespace):
+```powershell
+.\get_hitachicsilogs.ps1 -CollectMultipath
+```
+
 **View help**:
 ```powershell
 .\get_hitachicsilogs.ps1 -h
@@ -211,6 +221,7 @@ Get-Help .\get_hitachicsilogs.ps1
 | `--kubeconfig-primary <file>` | Path to primary cluster kubeconfig (for multi-cluster) | - |
 | `--kubeconfig-secondary <file>` | Path to secondary cluster kubeconfig (for multi-cluster) | - |
 | `--no-compress` | Skip zip creation | Creates zip |
+| `--collect-multipath` | Collect `/etc/multipath.conf` and `multipath -ll` from each node via short-lived Jobs | Disabled |
 | `--mtc` | Run `oc adm must-gather` for Migration Toolkit for Containers (OpenShift + oc required) | Disabled |
 | `--mtv` | Run `oc adm must-gather` for Migration Toolkit for Virtualization (OpenShift + oc required) | Disabled |
 | `-h, --help` | Show concise help message | - |
@@ -226,6 +237,7 @@ Get-Help .\get_hitachicsilogs.ps1
 | `-KubeconfigPrimary <file>` | Path to primary cluster kubeconfig (for multi-cluster) | - |
 | `-KubeconfigSecondary <file>` | Path to secondary cluster kubeconfig (for multi-cluster) | - |
 | `-NoCompress` | Skip zip creation | Creates zip |
+| `-CollectMultipath` | Collect `/etc/multipath.conf` and `multipath -ll` from each node via short-lived Jobs | Disabled |
 | `-Mtc` | Run `oc adm must-gather` for Migration Toolkit for Containers (OpenShift + oc required) | Disabled |
 | `-Mtv` | Run `oc adm must-gather` for Migration Toolkit for Virtualization (OpenShift + oc required) | Disabled |
 | `-Help, -h` | Show concise help message | - |
@@ -285,6 +297,11 @@ Contains comprehensive cluster and application information:
 11. **DR-Operator Resources** (when detected): LocalVolume, RemoteVolume, Replication, and DRPolicy Custom Resources
 
 ### Must-Gather Output (optional)
+When `--collect-multipath` (Bash) / `-CollectMultipath` (PowerShell) is specified:
+- `multipath/<node-name>.txt` - Per-node output: `/etc/multipath.conf` and `multipath -ll`
+  - **OpenShift**: uses `oc debug node/<node>` (built-in privileged access, no SCC grants needed)
+  - **Kubernetes**: uses a short-lived Job per node with hostPath mounts (requires create/delete Jobs in the HSPC namespace)
+
 When `--mtc` or `--mtv` (Bash) / `-Mtc` or `-Mtv` (PowerShell) are specified:
 - `must-gather-mtc/` - Output from `oc adm must-gather` for Migration Toolkit for Containers
 - `must-gather-mtv/` - Output from `oc adm must-gather` for Migration Toolkit for Virtualization
