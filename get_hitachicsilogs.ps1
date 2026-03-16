@@ -441,7 +441,7 @@ function Invoke-MultipathCollection {
         Log "Collecting multipath configuration from nodes via 'oc debug node' (OpenShift)..."
         $ocKubeconfigArgs = @()
         if ($KubeconfigPath) { $ocKubeconfigArgs += "--kubeconfig=$KubeconfigPath" }
-        $multipathCmd = 'echo "=== /etc/multipath.conf ==="; cat /host/etc/multipath.conf 2>/dev/null || echo "(not found)"; echo "=== multipath -ll ==="; chroot /host multipath -ll 2>/dev/null || echo "(multipath not available)"'
+        $multipathCmd = 'echo "=== /etc/multipath.conf ==="; cat /host/etc/multipath.conf 2>/dev/null || echo "(not found)"; echo; echo "=== multipath -ll ==="; chroot /host multipath -ll 2>/dev/null || echo "(multipath not available)"'
 
         foreach ($node in $nodes) {
             if (-not $node) { continue }
@@ -492,6 +492,7 @@ spec:
         - |
           echo '=== /etc/multipath.conf ==='
           cat /etc/multipath.conf 2>/dev/null || echo '(not found)'
+          echo
           echo '=== multipath -ll ==='
           multipath -ll 2>/dev/null || echo '(multipath not available)'
         volumeMounts:

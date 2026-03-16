@@ -360,7 +360,7 @@ collect_multipath() {
         oc_kubeconfig_args=("--kubeconfig=$kubeconfig")
     fi
 
-    local multipath_cmd='echo "=== /etc/multipath.conf ==="; cat /host/etc/multipath.conf 2>/dev/null || echo "(not found)"; echo "=== multipath -ll ==="; chroot /host multipath -ll 2>/dev/null || echo "(multipath not available)"'
+    local multipath_cmd='echo "=== /etc/multipath.conf ==="; cat /host/etc/multipath.conf 2>/dev/null || echo "(not found)"; echo; echo "=== multipath -ll ==="; chroot /host multipath -ll 2>/dev/null || echo "(multipath not available)"'
 
     if [[ "$is_openshift" == "true" ]] && [[ -n "$OC_CMD" ]]; then
         log "Collecting multipath configuration from nodes via 'oc debug node' (OpenShift)..."
@@ -420,6 +420,7 @@ spec:
         - |
           echo '=== /etc/multipath.conf ==='
           cat /etc/multipath.conf 2>/dev/null || echo '(not found)'
+          echo
           echo '=== multipath -ll ==='
           multipath -ll 2>/dev/null || echo '(multipath not available)'
         volumeMounts:
