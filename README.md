@@ -108,7 +108,7 @@ A comprehensive log collection tool for Hitachi CSI drivers running in Kubernete
 ./get_hitachicsilogs.sh --mtc --mtv
 ```
 
-**Collect multipath configuration from each node** (creates short-lived Jobs; requires create/delete Jobs in HSPC namespace):
+**Collect multipath configuration from each node** (OpenShift: `oc debug node`; Kubernetes: short-lived Jobs — requires create/delete Jobs in HSPC namespace):
 ```bash
 ./get_hitachicsilogs.sh --collect-multipath
 ```
@@ -189,7 +189,7 @@ sed -i 's/\r$//' get_hitachicsilogs.sh
 .\get_hitachicsilogs.ps1 -Mtc -Mtv
 ```
 
-**Collect multipath configuration from each node** (creates short-lived Jobs; requires create/delete Jobs in HSPC namespace):
+**Collect multipath configuration from each node** (OpenShift: `oc debug node`; Kubernetes: short-lived Jobs — requires create/delete Jobs in HSPC namespace):
 ```powershell
 .\get_hitachicsilogs.ps1 -CollectMultipath
 ```
@@ -221,7 +221,7 @@ Get-Help .\get_hitachicsilogs.ps1
 | `--kubeconfig-primary <file>` | Path to primary cluster kubeconfig (for multi-cluster) | - |
 | `--kubeconfig-secondary <file>` | Path to secondary cluster kubeconfig (for multi-cluster) | - |
 | `--no-compress` | Skip zip creation | Creates zip |
-| `--collect-multipath` | Collect `/etc/multipath.conf` and `multipath -ll` from each node via short-lived Jobs | Disabled |
+| `--collect-multipath` | Collect `/etc/multipath.conf` and `multipath -ll` from each node (OpenShift: `oc debug node`; Kubernetes: short-lived Jobs in HSPC namespace) | Disabled |
 | `--mtc` | Run `oc adm must-gather` for Migration Toolkit for Containers (OpenShift + oc required) | Disabled |
 | `--mtv` | Run `oc adm must-gather` for Migration Toolkit for Virtualization (OpenShift + oc required) | Disabled |
 | `-h, --help` | Show concise help message | - |
@@ -237,7 +237,7 @@ Get-Help .\get_hitachicsilogs.ps1
 | `-KubeconfigPrimary <file>` | Path to primary cluster kubeconfig (for multi-cluster) | - |
 | `-KubeconfigSecondary <file>` | Path to secondary cluster kubeconfig (for multi-cluster) | - |
 | `-NoCompress` | Skip zip creation | Creates zip |
-| `-CollectMultipath` | Collect `/etc/multipath.conf` and `multipath -ll` from each node via short-lived Jobs | Disabled |
+| `-CollectMultipath` | Collect `/etc/multipath.conf` and `multipath -ll` from each node (OpenShift: `oc debug node`; Kubernetes: short-lived Jobs in HSPC namespace) | Disabled |
 | `-Mtc` | Run `oc adm must-gather` for Migration Toolkit for Containers (OpenShift + oc required) | Disabled |
 | `-Mtv` | Run `oc adm must-gather` for Migration Toolkit for Virtualization (OpenShift + oc required) | Disabled |
 | `-Help, -h` | Show concise help message | - |
@@ -299,8 +299,8 @@ Contains comprehensive cluster and application information:
 ### Must-Gather Output (optional)
 When `--collect-multipath` (Bash) / `-CollectMultipath` (PowerShell) is specified:
 - `multipath/<node-name>.txt` - Per-node output: `/etc/multipath.conf` and `multipath -ll`
-  - **OpenShift**: uses `oc debug node/<node>` (built-in privileged access, no SCC grants needed)
-  - **Kubernetes**: uses a short-lived Job per node with hostPath mounts (requires create/delete Jobs in the HSPC namespace)
+  - **OpenShift**: uses `oc debug node/<node>` (built-in privileged access, no Jobs or extra RBAC)
+  - **Kubernetes**: uses a short-lived privileged Job per node with hostPath mounts to `/etc` and `/dev` (requires create/delete Jobs in the HSPC namespace). Optional env: `MULTIPATH_JOB_IMAGE` (default `ubuntu:22.04`), `MULTIPATH_JOB_TIMEOUT` (default `120` seconds)
 
 When `--mtc` or `--mtv` (Bash) / `-Mtc` or `-Mtv` (PowerShell) are specified:
 - `must-gather-mtc/` - Output from `oc adm must-gather` for Migration Toolkit for Containers
