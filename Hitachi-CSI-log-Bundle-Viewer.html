@@ -3239,6 +3239,24 @@
                 }
             }
 
+            // Multipath config excerpts (per-node /etc/multipath.conf and multipath -ll from --collect-multipath)
+            if (state.multipath && typeof state.multipath === 'object') {
+                payload.multipathExcerpt = {};
+                const maxCharsPerNode = 12000;
+                const maxNodesPerCluster = 15;
+                for (const [cluster, nodes] of Object.entries(state.multipath)) {
+                    if (!nodes || typeof nodes !== 'object') continue;
+                    payload.multipathExcerpt[cluster] = {};
+                    const nodeNames = Object.keys(nodes).slice(0, maxNodesPerCluster);
+                    for (const nodeName of nodeNames) {
+                        const content = nodes[nodeName];
+                        if (!content || typeof content !== 'string') continue;
+                        let excerpt = content.length > maxCharsPerNode ? content.substring(0, maxCharsPerNode) + '\n... (truncated)' : content;
+                        payload.multipathExcerpt[cluster][nodeName] = excerpt;
+                    }
+                }
+            }
+
             // Pod health summary (pods with errors/warnings)
             if (state.podHealth && typeof state.podHealth === 'object') {
                 const podsWithErrors = [];
@@ -3271,6 +3289,7 @@
             var systemPrompt = 'You are analyzing a Hitachi CSI (HSPC) log bundle from a Kubernetes or OpenShift environment. You will receive a structured summary of errors, warnings, and configuration. Your job is to: (1) list the main issues found, (2) assign each a priority (high, medium, or low), (3) recommend the single most important thing to investigate first. Use the error category names and descriptions provided; they map to known HSPC/VSP error patterns.'
                 + ' You MUST cite specific error codes (e.g. HSPC0x...) and identifiers from the payload (keyIdentifiers, environment) in your summaries and suggestedActions when possible (e.g. "Check LDEV 13 on array 12345", "HSPC0x0000c037 indicates ..."). Give at least one concrete next step per issue where possible (e.g. a command to run or a specific resource to check). If one issue is clearly the root cause of others, say so and set rootCauseOf to that downstream category name; prioritize root causes higher.'
                 + ' Use the keyIdentifiers and environment sections when suggesting actions so answers are specific to this bundle.'
+                + ' If the payload includes multipathExcerpt (per-node /etc/multipath.conf and multipath -ll output from the bundle), use it when analyzing multipath-issues: e.g. missing or empty config, device visibility, or multipath -ll output that explains path or LUN problems.'
                 + codeRefStr
                 + '\n\nRespond in valid JSON with this shape: { "highPriorityIssue": "one sentence on what to check first", "issues": [ { "title": "short title", "priority": "high"|"medium"|"low", "category": "category key from the payload", "affectedPods": ["pod1", "pod2"], "summary": "brief explanation", "suggestedActions": "what to do", "evidence": "optional: one representative log snippet or error code from the payload that supports this issue", "rootCauseOf": "optional: category name of a downstream issue if this is the root cause" } ] }. evidence and rootCauseOf are optional. If there are no errors, set highPriorityIssue to "No errors detected in the summary." and issues to [].';
 
@@ -3516,18 +3535,42 @@
             }
         }
 
+        // Bounded multipath excerpt from state.multipath for chat (per cluster/node, same bounds as analysis payload).
+        function getMultipathExcerptForChat() {
+            if (!state.multipath || typeof state.multipath !== 'object') return '';
+            var maxCharsPerNode = 12000;
+            var maxNodesPerCluster = 15;
+            var parts = [];
+            for (var cluster in state.multipath) {
+                var nodes = state.multipath[cluster];
+                if (!nodes || typeof nodes !== 'object') continue;
+                var nodeNames = Object.keys(nodes).slice(0, maxNodesPerCluster);
+                for (var i = 0; i < nodeNames.length; i++) {
+                    var nodeName = nodeNames[i];
+                    var content = nodes[nodeName];
+                    if (!content || typeof content !== 'string') continue;
+                    var excerpt = content.length > maxCharsPerNode ? content.substring(0, maxCharsPerNode) + '\n... (truncated)' : content;
+                    parts.push('--- Cluster: ' + cluster + ', Node: ' + nodeName + ' ---\n' + excerpt);
+                }
+            }
+            return parts.length ? parts.join('\n\n') : '';
+        }
+
         // Build messages for chat (excerpts + user question + optional history) and send
         async function sendChatMessage(userMessage, conversationHistory, apiKey, options) {
             var excerpts = getRelevantLogExcerpts(userMessage, { maxAnchorLines: 60, contextBefore: 12, contextAfter: 8, maxTotalLines: 600 });
-            var excerptTokens = estimateTokens(excerpts);
-            var systemContent = 'You are helping the user interpret their Hitachi CSI (HSPC) log excerpts. Below are relevant log lines with surrounding context. Duplicate lines are summarized as (occurred N times). Answer based only on the provided excerpts and the conversation. Pay attention to INFO-level lines that match the user\'s question (e.g. file paths, config names, or specific identifiers); they often explain configuration or environment details even when no ERROR is present. When you have relevant details from the excerpts, provide specific, detailed answers and cite log evidence (e.g. quote the line that says /etc/multipath.conf does not exist).';
+            var multipathBlock = getMultipathExcerptForChat();
+            if (multipathBlock) multipathBlock = '\n\n--- Multipath configuration (from bundle, /etc/multipath.conf and multipath -ll per node) ---\n\n' + multipathBlock;
+            var fullContent = 'Relevant log excerpts:\n\n' + excerpts + multipathBlock + '\n\nUser question: ' + userMessage;
+            var excerptTokens = estimateTokens(fullContent);
+            var systemContent = 'You are helping the user interpret their Hitachi CSI (HSPC) log excerpts. Below are relevant log lines with surrounding context. Duplicate lines are summarized as (occurred N times). Answer based only on the provided excerpts and the conversation. Pay attention to INFO-level lines that match the user\'s question (e.g. file paths, config names, or specific identifiers); they often explain configuration or environment details even when no ERROR is present. When you have relevant details from the excerpts, provide specific, detailed answers and cite log evidence (e.g. quote the line that says /etc/multipath.conf does not exist). If multipath configuration from the bundle is present (per-node /etc/multipath.conf and multipath -ll output), use it when relevant to the question.';
             var messages = [{ role: 'system', content: systemContent }];
             var history = conversationHistory || [];
             var lastTurns = history.slice(-10);
             for (var h = 0; h < lastTurns.length; h++) {
                 messages.push({ role: lastTurns[h].role, content: lastTurns[h].content });
             }
-            messages.push({ role: 'user', content: 'Relevant log excerpts:\n\n' + excerpts + '\n\nUser question: ' + userMessage });
+            messages.push({ role: 'user', content: fullContent });
             var apiResult = await callChatAPI(apiKey, messages, options);
             apiResult.excerptTokens = excerptTokens;
             return apiResult;
