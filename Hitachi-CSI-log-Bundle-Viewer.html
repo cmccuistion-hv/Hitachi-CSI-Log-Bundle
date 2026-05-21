@@ -1862,7 +1862,7 @@
     <script>
 
         // Version Configuration
-        const VERSION = '1.7.0.1';
+        const VERSION = '1.7.0.2';
         const GITHUB_REPO = 'cmccuistion-hv/Hitachi-CSI-Log-Bundle';
         const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`;
         const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
@@ -3801,8 +3801,10 @@
         // Storage classes use 6-digit serials; CSI volume IDs often include a vendor prefix.
         function normalizeArraySerial(serial) {
             if (serial == null || serial === 'Unknown') return serial;
-            const s = String(serial).trim();
-            if (s.length > 6) return s.slice(-6);
+            let s = String(serial).trim();
+            if (s.length > 6) s = s.slice(-6);
+            // SC parameters often drop leading zeros (41721) while volume IDs retain them (041721).
+            s = s.replace(/^0+/, '') || '0';
             return s;
         }
 
@@ -5671,6 +5673,33 @@
             // If no node/pod info, include it (shouldn't happen, but be safe)
             return true;
         }
+
+        // Group key for a host/WWN entry — prefer Kubernetes node name, else CSI pod name.
+        function getHostGroupKey(host) {
+            const nodeId = resolveHostNodeId(host);
+            if (nodeId && nodeId !== 'unknown') return nodeId;
+            if (host.nodes && host.nodes.size > 0) {
+                return 'pod:' + getBasePodName(Array.from(host.nodes)[0]);
+            }
+            return 'unknown';
+        }
+
+        function getHostGroupDisplayName(groupKey, group) {
+            if (groupKey.startsWith('pod:')) {
+                return group.nodeId && group.nodeId !== 'unknown' ? group.nodeId : groupKey.substring(4);
+            }
+            return groupKey;
+        }
+
+        function countCsiNodePods(cluster) {
+            let count = 0;
+            for (const key of Object.keys(state.podHealth)) {
+                if (!key.includes('hspc-csi-node')) continue;
+                if (cluster && !key.startsWith(cluster + '/')) continue;
+                count++;
+            }
+            return count;
+        }
         
         // Helper to get storage classes, arrays, and ports used by pods in current cluster
         function getClusterStorageResources(cluster) {
@@ -5859,17 +5888,28 @@
             // Deduplicate hosts by Kubernetes node — each node can have multiple WWPNs/WWNNs
             const nodeGroups = {};
             for (const host of Object.values(filteredHosts)) {
-                const nodeId = resolveHostNodeId(host) || 'unknown';
-                if (!nodeGroups[nodeId]) {
-                    nodeGroups[nodeId] = { nodeId, wwpns: new Set(), wwnns: new Set(), pods: new Set(), errors: 0, warnings: 0 };
+                if (!host.wwpn) continue;
+                const groupKey = getHostGroupKey(host);
+                if (!nodeGroups[groupKey]) {
+                    const nodeId = resolveHostNodeId(host);
+                    nodeGroups[groupKey] = {
+                        nodeId: nodeId && nodeId !== 'unknown' ? nodeId : getHostGroupDisplayName(groupKey, { nodeId }),
+                        wwpns: new Set(),
+                        wwnns: new Set(),
+                        pods: new Set(),
+                        errors: 0,
+                        warnings: 0
+                    };
                 }
-                if (host.wwpn) nodeGroups[nodeId].wwpns.add(host.wwpn);
-                if (host.wwnn) nodeGroups[nodeId].wwnns.add(host.wwnn);
-                if (host.nodes) host.nodes.forEach(n => nodeGroups[nodeId].pods.add(n));
-                nodeGroups[nodeId].errors += (host.errors || 0);
-                nodeGroups[nodeId].warnings += (host.warnings || 0);
+                if (host.wwpn) nodeGroups[groupKey].wwpns.add(host.wwpn);
+                if (host.wwnn) nodeGroups[groupKey].wwnns.add(host.wwnn);
+                if (host.nodes) host.nodes.forEach(n => nodeGroups[groupKey].pods.add(n));
+                nodeGroups[groupKey].errors += (host.errors || 0);
+                nodeGroups[groupKey].warnings += (host.warnings || 0);
             }
-            const hostCount = Object.keys(nodeGroups).length;
+            const wwnNodeCount = Object.keys(nodeGroups).length;
+            const csiNodePodCount = countCsiNodePods(state.currentCluster);
+            const hostCount = wwnNodeCount;
 
             // Multipath data for current cluster
             const mpCluster = state.currentCluster || Object.keys(state.multipath)[0] || null;
@@ -5884,7 +5924,9 @@
             
             if (filteredStorageClasses && filteredStorageClasses.length > 0) {
                 filteredStorageClasses.forEach(sc => {
-                    const serial = sc.parameters && sc.parameters.serialNumber ? sc.parameters.serialNumber.trim() : null;
+                    const serial = sc.parameters && sc.parameters.serialNumber
+                        ? normalizeArraySerial(sc.parameters.serialNumber.trim())
+                        : null;
                     if (!serial) return;
                     
                     // Collect ports from this storage class and create entries
@@ -5927,7 +5969,7 @@
             if (filteredStorageClasses && filteredStorageClasses.length > 0) {
                 filteredStorageClasses.forEach(sc => {
                     if (sc.parameters && sc.parameters.serialNumber) {
-                        arraysFromSC.add(sc.parameters.serialNumber.trim());
+                        arraysFromSC.add(normalizeArraySerial(sc.parameters.serialNumber.trim()));
                     }
                 });
             }
@@ -5998,9 +6040,10 @@
                         <div class="config-card-title">Storage Classes</div>
                         <div class="config-card-value">${storageClassCount}</div>
                     </div>
-                    <div class="config-card clickable-card" onclick="scrollToSection('hosts-wwns-section')" title="Click to view Hosts & WWNs">
-                        <div class="config-card-title">Nodes (WWN)</div>
-                        <div class="config-card-value">${hostCount}</div>
+                    <div class="config-card clickable-card" onclick="scrollToSection('hosts-wwns-section')" title="Nodes with host WWN data found in collected CSI node driver logs${csiNodePodCount > wwnNodeCount ? ' (' + wwnNodeCount + ' of ' + csiNodePodCount + ' CSI node pods)' : ''}">
+                        <div class="config-card-title">Nodes w/ WWN in Logs</div>
+                        <div class="config-card-value">${wwnNodeCount}</div>
+                        ${csiNodePodCount > wwnNodeCount ? `<div style="font-size: 10px; color: var(--text-secondary); margin-top: 4px; font-weight: normal;">of ${csiNodePodCount} CSI node pods</div>` : ''}
                     </div>
                     <div class="config-card clickable-card" onclick="scrollToSection('volumes-section')" title="Click to view Volumes & LUN Mappings">
                         <div class="config-card-title">Total Volumes</div>
@@ -6122,7 +6165,7 @@
                     <div id="hosts-wwns-section" class="config-section">
                         <div class="config-section-header">
                             <span>🔌 Hosts, WWNs, Multipath</span>
-                            <span class="config-section-count">${hostCount} node${hostCount !== 1 ? 's' : ''}</span>
+                            <span class="config-section-count">${wwnNodeCount} node${wwnNodeCount !== 1 ? 's' : ''} w/ WWN in logs${csiNodePodCount > wwnNodeCount ? ' (' + csiNodePodCount + ' CSI node pods total)' : ''}</span>
                         </div>
                         <table class="config-table">
                             <thead>
