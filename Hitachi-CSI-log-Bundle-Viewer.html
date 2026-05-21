@@ -1796,6 +1796,7 @@
             // Configuration data
             config: {
                 hosts: {},           // WWN -> host info
+                podNodeIds: {},      // pod log name -> Kubernetes node_id from NodeGetInfo
                 hostgroups: {},      // hostgroup -> members
                 ports: {},           // port -> config
                 volumes: {},         // volume -> attachments
@@ -2292,6 +2293,7 @@
             state.podStats = {};
             state.config = {
                 hosts: {},
+                podNodeIds: {},
                 hostgroups: {},
                 ports: {},
                 volumes: {},
@@ -3611,6 +3613,63 @@
             }
         }
 
+        // Strip cluster prefix and container suffix from a log pod name for podHealth lookup.
+        function getBasePodName(podName) {
+            if (!podName) return podName;
+            const slash = podName.lastIndexOf('/');
+            const withoutCluster = slash >= 0 ? podName.substring(slash + 1) : podName;
+            const underscore = withoutCluster.indexOf('_');
+            return underscore >= 0 ? withoutCluster.substring(0, underscore) : withoutCluster;
+        }
+
+        function getPodHealthKeysForLogPod(podName) {
+            const keys = [];
+            if (!podName) return keys;
+            keys.push(podName);
+            const base = getBasePodName(podName);
+            if (base !== podName) keys.push(base);
+            if (podName.includes('/')) {
+                keys.push(`${podName.substring(0, podName.indexOf('/'))}/${base}`);
+            }
+            return keys;
+        }
+
+        // Resolve Kubernetes node name from cluster-context pod metadata when NodeGetInfo is absent.
+        function getNodeNameForPod(podName) {
+            for (const key of getPodHealthKeysForLogPod(podName)) {
+                const node = state.podHealth[key]?.node;
+                if (node) return node;
+            }
+            return null;
+        }
+
+        function resolveHostNodeId(hostInfo) {
+            if (hostInfo.nodeId) return hostInfo.nodeId;
+            if (hostInfo.nodes) {
+                for (const pod of hostInfo.nodes) {
+                    const fromLog = state.config.podNodeIds[pod];
+                    if (fromLog) return fromLog;
+                    const fromContext = getNodeNameForPod(pod);
+                    if (fromContext) return fromContext;
+                }
+            }
+            return null;
+        }
+
+        // Match multipath files when node names differ (e.g. worker1 vs worker1.dc1.ocp.example.local).
+        function lookupMultipathContent(nodeId, mpNodes) {
+            if (!nodeId || !mpNodes) return null;
+            if (mpNodes[nodeId]) return mpNodes[nodeId];
+            const shortName = nodeId.split('.')[0];
+            if (mpNodes[shortName]) return mpNodes[shortName];
+            for (const [key, content] of Object.entries(mpNodes)) {
+                if (key.split('.')[0] === shortName || nodeId.startsWith(key + '.')) {
+                    return content;
+                }
+            }
+            return null;
+        }
+
         // Extract configuration data from log lines
         function extractConfigData(line, timestamp, podName, level) {
             // level is now passed as a parameter for efficiency
@@ -3630,6 +3689,10 @@
                     };
                 }
                 state.config.hosts[wwpn].nodes.add(podName);
+                if (!state.config.hosts[wwpn].nodeId) {
+                    const nodeId = state.config.podNodeIds[podName] || getNodeNameForPod(podName);
+                    if (nodeId) state.config.hosts[wwpn].nodeId = nodeId;
+                }
                 
                 if (level === 'ERROR') state.config.hosts[wwpn].errors++;
                 if (level === 'WARNING') state.config.hosts[wwpn].warnings++;
@@ -3640,8 +3703,9 @@
             const nodeIdMatch = line.match(/node_id:"([^"]+)"/);
             if (nodeIdMatch && line.indexOf('NodeGetInfo') !== -1) {
                 const nodeId = nodeIdMatch[1];
-                // Associate this node with its WWNs
-                for (const [wwpn, hostInfo] of Object.entries(state.config.hosts)) {
+                state.config.podNodeIds[podName] = nodeId;
+                // Associate this node with its WWNs (including WWNs discovered after NodeGetInfo)
+                for (const hostInfo of Object.values(state.config.hosts)) {
                     if (hostInfo.nodes.has(podName)) {
                         hostInfo.nodeId = nodeId;
                     }
@@ -5457,7 +5521,7 @@
             // Deduplicate hosts by Kubernetes node — each node can have multiple WWPNs/WWNNs
             const nodeGroups = {};
             for (const host of Object.values(filteredHosts)) {
-                const nodeId = host.nodeId || 'unknown';
+                const nodeId = resolveHostNodeId(host) || 'unknown';
                 if (!nodeGroups[nodeId]) {
                     nodeGroups[nodeId] = { nodeId, wwpns: new Set(), wwnns: new Set(), pods: new Set(), errors: 0, warnings: 0 };
                 }
@@ -5743,7 +5807,7 @@
                     const wwpnList = Array.from(node.wwpns).map(w => `<span class="wwn-code">${w}</span>`).join('<br>');
                     const wwnnList = Array.from(node.wwnns).map(w => `<span class="wwn-code">${w}</span>`).join('<br>');
 
-                    const mpContent = mpNodes[node.nodeId];
+                    const mpContent = lookupMultipathContent(node.nodeId, mpNodes);
                     let mpCell;
                     if (mpContent) {
                         const confMatch = mpContent.match(/=== \/etc\/multipath\.conf ===([\s\S]*?)(?==== multipath -ll ===|$)/);
