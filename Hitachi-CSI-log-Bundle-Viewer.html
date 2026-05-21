@@ -3801,8 +3801,9 @@
         // Storage classes use 6-digit serials; CSI volume IDs often include a vendor prefix.
         function normalizeArraySerial(serial) {
             if (serial == null || serial === 'Unknown') return serial;
-            let s = String(serial).trim();
-            if (s.length > 6) s = s.slice(-6);
+            const digits = String(serial).replace(/\D/g, '');
+            if (!digits) return 'Unknown';
+            let s = digits.length > 6 ? digits.slice(-6) : digits;
             // SC parameters often drop leading zeros (41721) while volume IDs retain them (041721).
             s = s.replace(/^0+/, '') || '0';
             return s;
@@ -4510,7 +4511,7 @@
                             const paramMatch = line.match(/^\s{2}(\S+):\s*(.+)$/);
                             if (paramMatch) {
                                 const key = paramMatch[1].trim();
-                                const value = paramMatch[2].trim().replace(/^"|"$/g, ''); // Remove quotes
+                                const value = paramMatch[2].trim().replace(/^["']|["']$/g, '');
                                 sc.parameters[key] = value;
                             }
                         }
@@ -5768,7 +5769,7 @@
                                     const paramMatch = line.match(/^\s{2}(\S+):\s*(.+)$/);
                                     if (paramMatch) {
                                         const key = paramMatch[1].trim();
-                                        const value = paramMatch[2].trim().replace(/^"|"$/g, '');
+                                        const value = paramMatch[2].trim().replace(/^["']|["']$/g, '');
                                         sc.parameters[key] = value;
                                     }
                                 }
@@ -8457,7 +8458,7 @@
                             const paramMatch = line.match(/^\s{2}(\S+):\s*(.+)$/);
                             if (paramMatch) {
                                 const key = paramMatch[1].trim();
-                                const value = paramMatch[2].trim().replace(/^"|"$/g, '');
+                                const value = paramMatch[2].trim().replace(/^["']|["']$/g, '');
                                 sc.parameters[key] = value;
                             }
                         }
