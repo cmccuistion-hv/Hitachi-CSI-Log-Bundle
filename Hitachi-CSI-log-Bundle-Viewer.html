@@ -1207,6 +1207,118 @@
             font-size: 14px;
             color: var(--text-secondary);
             font-weight: normal;
+            white-space: nowrap;
+        }
+
+        .config-section-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            min-width: 0;
+        }
+
+        .config-section-header-with-search {
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .config-section-title-group {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex: 1;
+            min-width: 0;
+            flex-wrap: wrap;
+        }
+
+        .config-section-toolbar-left {
+            flex: 0 1 auto;
+        }
+
+        .config-search-box {
+            flex: 1;
+            min-width: 220px;
+            max-width: 480px;
+            position: relative;
+        }
+
+        .config-search-label {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: var(--accent-blue);
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .config-search-box .config-search-icon {
+            position: absolute;
+            left: 11px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--accent-blue);
+            font-size: 14px;
+            line-height: 1;
+            pointer-events: none;
+            z-index: 1;
+            opacity: 0.9;
+        }
+
+        .config-search-box input {
+            width: 100%;
+            padding: 10px 36px 10px 34px;
+            background: var(--bg-primary);
+            border: 2px solid var(--accent-blue);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 13px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .config-search-box input::placeholder {
+            color: var(--text-secondary);
+            opacity: 0.9;
+        }
+
+        .config-search-box input:focus {
+            outline: none;
+            border-color: var(--accent-green);
+            box-shadow: 0 0 0 3px rgba(78, 201, 176, 0.2), 0 2px 10px rgba(0, 0, 0, 0.4);
+        }
+
+        .config-search-box .search-clear {
+            right: 8px;
+            width: 22px;
+            height: 22px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            background: var(--bg-tertiary);
+            font-size: 13px;
+        }
+
+        .config-search-box .search-clear:hover {
+            background: var(--border-color);
+            color: var(--text-primary);
+        }
+
+        tr.volume-table-row.volume-row-match td:first-child {
+            box-shadow: inset 3px 0 0 var(--accent-blue);
+        }
+
+        tr.volume-table-row.volume-row-hidden {
+            display: none;
+        }
+
+        .volume-search-empty {
+            padding: 24px 20px;
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 13px;
         }
 
         .config-table {
@@ -1253,8 +1365,22 @@
             padding: 2px 8px;
             border-radius: 3px;
             margin: 2px;
-            font-size: 11px;
+            font-size: 12px;
             font-family: 'Consolas', monospace;
+            color: var(--text-primary);
+        }
+
+        .lun-badge-id {
+            color: var(--text-secondary);
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            margin-right: 3px;
+        }
+
+        .lun-badge-value {
+            font-weight: 600;
+            color: var(--accent-blue);
         }
 
         .port-badge {
@@ -1752,6 +1878,7 @@
             currentPod: 'all',
             filterLevel: 'ALL',
             searchTerm: '',
+            volumeSearchTerm: '',
             categoryFilter: null,  // Filter by error category
             wordWrap: true,  // Toggle word wrap mode
             disabledContainers: new Set(),  // Containers disabled when viewing "all" (empty Set = all enabled)
@@ -2268,6 +2395,7 @@
                 state.multipath = {};
                 state.clusters = [];
             state.inferredYear = null;  // Reset year inference for new bundle
+            state.volumeSearchTerm = '';
             state.disabledContainers = new Set();  // Reset disabled containers for new bundle
             state.timeFilter = {
                 enabled: false,
@@ -3670,6 +3798,310 @@
             return null;
         }
 
+        // Storage classes use 6-digit serials; CSI volume IDs often include a vendor prefix.
+        function normalizeArraySerial(serial) {
+            if (serial == null || serial === 'Unknown') return serial;
+            const s = String(serial).trim();
+            if (s.length > 6) return s.slice(-6);
+            return s;
+        }
+
+        function extractArraySerialFromVolumeId(volumeId) {
+            const scsiMatch = volumeId.match(/--scsi--(\d+)--/i);
+            if (scsiMatch) return normalizeArraySerial(scsiMatch[1]);
+            const fallback = volumeId.match(/--(\d{5,})--/);
+            if (fallback) return normalizeArraySerial(fallback[1]);
+            return 'Unknown';
+        }
+
+        function extractMappingsFromLine(line) {
+            const marker = 'mappings:';
+            const idx = line.indexOf(marker);
+            if (idx === -1) return null;
+            let start = idx + marker.length;
+            while (start < line.length && line[start] !== '[') start++;
+            if (start >= line.length || line[start] !== '[') return null;
+            let depth = 0;
+            for (let i = start; i < line.length; i++) {
+                if (line[i] === '[') depth++;
+                else if (line[i] === ']') {
+                    depth--;
+                    if (depth === 0) {
+                        try {
+                            return JSON.parse(line.substring(start, i + 1));
+                        } catch (e) {
+                            return null;
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
+        function applyVolumeConfigFromLine(line, podName, level) {
+            if (line.indexOf('Volume ID') === -1) return;
+            const isNodeVolumeOp = line.indexOf('NodeStageVolume') !== -1 || line.indexOf('NodePublishVolume') !== -1;
+            if (!isNodeVolumeOp) return;
+
+            const volumeIdMatch = line.match(/Volume ID \[([^\]]+)\]/);
+            const ldevMatch = line.match(/ldevIDDec:(\d+)/);
+            if (!volumeIdMatch || !ldevMatch) return;
+
+            const volumeId = volumeIdMatch[1];
+            if (volumeId === 'Volume ID not available') return;
+
+            const ldevId = ldevMatch[1];
+            const ldevHexMatch = line.match(/ldevIDHex:([0-9a-fA-F:]+)/);
+            const nicknameMatch = line.match(/nickname:([^\s\]]+)/);
+            const sizeMatch = line.match(/size:([^\s\]]+)/);
+            const portsMatch = line.match(/ports:([^\s\]]+)/);
+            const ldevHex = ldevHexMatch ? ldevHexMatch[1] : '';
+            const nickname = nicknameMatch ? nicknameMatch[1] : '';
+            const size = sizeMatch ? sizeMatch[1] : '';
+            const ports = portsMatch ? portsMatch[1].split(',').map(p => p.trim()).filter(Boolean) : [];
+            const arraySerial = extractArraySerialFromVolumeId(volumeId);
+
+            if (!state.config.volumes[volumeId]) {
+                state.config.volumes[volumeId] = {
+                    volumeId: volumeId,
+                    ldevId: ldevId,
+                    ldevHex: ldevHex,
+                    nickname: nickname,
+                    size: size,
+                    ports: ports,
+                    mappings: [],
+                    nodes: new Set(),
+                    arraySerial: arraySerial,
+                    errors: 0,
+                    warnings: 0
+                };
+            } else {
+                const vol = state.config.volumes[volumeId];
+                if (ldevHex && !vol.ldevHex) vol.ldevHex = ldevHex;
+                if (nickname && !vol.nickname) vol.nickname = nickname;
+                if (size && !vol.size) vol.size = size;
+                if (ports.length && !vol.ports.length) vol.ports = ports;
+                if (arraySerial !== 'Unknown') vol.arraySerial = arraySerial;
+            }
+
+            if (level === 'ERROR') state.config.volumes[volumeId].errors++;
+            if (level === 'WARNING') state.config.volumes[volumeId].warnings++;
+
+            const mappings = extractMappingsFromLine(line);
+            if (mappings) {
+                for (const mapping of mappings) {
+                    const existing = state.config.volumes[volumeId].mappings.find(
+                        m => m.identifier === mapping.identifier && m.lun === mapping.lun
+                    );
+                    if (!existing) state.config.volumes[volumeId].mappings.push(mapping);
+                }
+            }
+
+            state.config.volumes[volumeId].nodes.add(podName);
+
+            if (!state.config.arrays[arraySerial]) {
+                state.config.arrays[arraySerial] = {
+                    serial: arraySerial,
+                    volumes: new Set(),
+                    ports: new Set(),
+                    errors: 0,
+                    warnings: 0
+                };
+            }
+            state.config.arrays[arraySerial].volumes.add(volumeId);
+            if (level === 'ERROR') state.config.arrays[arraySerial].errors++;
+            if (level === 'WARNING') state.config.arrays[arraySerial].warnings++;
+
+            for (const port of ports) {
+                const portKey = `${port}:${arraySerial}`;
+                if (!state.config.ports[portKey]) {
+                    state.config.ports[portKey] = {
+                        name: port,
+                        volumes: new Set(),
+                        arraySerial: arraySerial,
+                        errors: 0,
+                        warnings: 0
+                    };
+                }
+                state.config.ports[portKey].volumes.add(volumeId);
+                state.config.arrays[arraySerial].ports.add(port);
+                if (level === 'ERROR') state.config.ports[portKey].errors++;
+                if (level === 'WARNING') state.config.ports[portKey].warnings++;
+            }
+        }
+
+        function findPortInfoEntry(portsInfo, portName, arraySerial) {
+            const normalized = normalizeArraySerial(arraySerial);
+            for (const key of [`${portName}:${normalized}`, `${portName}:${arraySerial}`]) {
+                if (portsInfo.has(key)) return portsInfo.get(key);
+            }
+            for (const info of portsInfo.values()) {
+                if (info.name === portName && normalizeArraySerial(info.arraySerial) === normalized) {
+                    return info;
+                }
+            }
+            return null;
+        }
+
+        function attachVolumeToPortUsage(portsInfo, vol) {
+            const serial = vol.arraySerial || extractArraySerialFromVolumeId(vol.volumeId);
+            for (const portName of (vol.ports || [])) {
+                const entry = findPortInfoEntry(portsInfo, portName, serial);
+                if (entry) entry.volumes.add(vol.volumeId);
+            }
+        }
+
+        function buildWwpnToHostLookup(hosts) {
+            const lookup = new Map();
+            for (const host of Object.values(hosts)) {
+                if (!host.wwpn) continue;
+                const nodeId = resolveHostNodeId(host);
+                lookup.set(host.wwpn.toLowerCase(), {
+                    nodeId: nodeId || null,
+                    wwpn: host.wwpn,
+                    wwnn: host.wwnn || null
+                });
+            }
+            return lookup;
+        }
+
+        function renderVolumeLunMappingsHtml(mappings, wwpnToHost) {
+            if (!mappings || mappings.length === 0) return '';
+
+            const lunsByWwpn = {};
+            for (const mapping of mappings) {
+                if (!mapping.identifier) continue;
+                const wwpn = mapping.identifier.toLowerCase();
+                if (!lunsByWwpn[wwpn]) lunsByWwpn[wwpn] = new Set();
+                lunsByWwpn[wwpn].add(mapping.lun);
+            }
+
+            const lunsByNode = new Map();
+            for (const [wwpn, luns] of Object.entries(lunsByWwpn)) {
+                const hostInfo = wwpnToHost.get(wwpn);
+                const nodeId = hostInfo && hostInfo.nodeId ? hostInfo.nodeId : null;
+                const nodeKey = nodeId || `_unmapped_${wwpn}`;
+                if (!lunsByNode.has(nodeKey)) {
+                    lunsByNode.set(nodeKey, { nodeId, wwpns: new Map() });
+                }
+                lunsByNode.get(nodeKey).wwpns.set(wwpn, luns);
+            }
+
+            const sortedGroups = Array.from(lunsByNode.values()).sort((a, b) => {
+                if (a.nodeId && !b.nodeId) return -1;
+                if (!a.nodeId && b.nodeId) return 1;
+                return (a.nodeId || '').localeCompare(b.nodeId || '');
+            });
+
+            let html = '';
+            for (const group of sortedGroups) {
+                html += `<div style="margin: 3px 0; padding: 4px 6px; background: var(--bg-secondary); border-radius: 4px; border-left: 2px solid var(--accent-blue);">`;
+                if (group.nodeId) {
+                    html += `<div><span class="node-badge">${escapeHtml(group.nodeId)}</span></div>`;
+                } else {
+                    html += `<div style="font-size: 10px; color: var(--text-secondary);">Unmapped host</div>`;
+                }
+
+                for (const [wwpn, luns] of [...group.wwpns.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+                    const hostInfo = wwpnToHost.get(wwpn);
+                    const shortWwpn = wwpn.substring(wwpn.length - 8);
+                    const lunList = Array.from(luns).sort((a, b) => Number(a) - Number(b));
+                    const wwnnHint = hostInfo && hostInfo.wwnn
+                        ? `WWPN: ${hostInfo.wwpn}\nWWNN: ${hostInfo.wwnn}`
+                        : `WWPN: ${wwpn}`;
+
+                    html += `<div style="margin-top: 2px; font-size: 11px;">`;
+                    html += `<span class="wwn-code" style="font-size: 10px;" title="${escapeHtml(wwnnHint)}">${shortWwpn}</span>`;
+                    html += `<span style="color: var(--text-secondary); font-size: 10px; margin: 0 4px;">→</span>`;
+                    for (const lun of lunList) {
+                        html += `<span class="lun-badge" title="LUN ID ${escapeHtml(String(lun))}"><span class="lun-badge-id">LUN</span><span class="lun-badge-value">${escapeHtml(String(lun))}</span></span>`;
+                    }
+                    html += '</div>';
+                }
+                html += '</div>';
+            }
+            return html;
+        }
+
+        function buildVolumeSearchText(vol, wwpnToHost) {
+            const parts = [
+                vol.ldevId,
+                vol.ldevHex,
+                vol.nickname,
+                vol.volumeId,
+                vol.arraySerial,
+                vol.size,
+                ...(vol.ports || [])
+            ];
+            for (const mapping of (vol.mappings || [])) {
+                if (mapping.identifier) {
+                    parts.push(mapping.identifier);
+                    if (mapping.identifier.length > 8) {
+                        parts.push(mapping.identifier.slice(-8));
+                    }
+                }
+                if (mapping.lun != null && mapping.lun !== '') {
+                    parts.push(String(mapping.lun));
+                }
+                const hostInfo = wwpnToHost.get(String(mapping.identifier || '').toLowerCase());
+                if (hostInfo) {
+                    if (hostInfo.nodeId) parts.push(hostInfo.nodeId);
+                    if (hostInfo.wwnn) parts.push(hostInfo.wwnn);
+                    if (hostInfo.wwpn) parts.push(hostInfo.wwpn);
+                }
+            }
+            return parts.filter(Boolean).join(' ').toLowerCase();
+        }
+
+        function filterVolumeTable() {
+            const input = document.getElementById('volumeSearchInput');
+            const countEl = document.getElementById('volumeSearchCount');
+            const emptyEl = document.getElementById('volumeSearchEmpty');
+            const tbody = document.querySelector('#volumes-section tbody');
+            if (!tbody) return;
+
+            const term = (input ? input.value : state.volumeSearchTerm || '').trim().toLowerCase();
+            state.volumeSearchTerm = term;
+
+            const rows = tbody.querySelectorAll('tr.volume-table-row');
+            let visible = 0;
+            rows.forEach(row => {
+                const haystack = row.getAttribute('data-volume-search') || '';
+                const match = !term || haystack.includes(term);
+                row.classList.toggle('volume-row-hidden', !match);
+                row.classList.toggle('volume-row-match', match && term.length > 0);
+                if (match) visible++;
+            });
+
+            if (countEl) {
+                countEl.textContent = term
+                    ? `${visible} of ${rows.length} volumes`
+                    : `${rows.length} volume${rows.length !== 1 ? 's' : ''}`;
+            }
+            if (emptyEl) {
+                emptyEl.style.display = term && visible === 0 ? 'block' : 'none';
+            }
+        }
+
+        function setupVolumeSearch() {
+            const input = document.getElementById('volumeSearchInput');
+            const clearBtn = document.getElementById('volumeSearchClear');
+            if (!input) return;
+
+            input.value = state.volumeSearchTerm || '';
+            input.oninput = () => filterVolumeTable();
+            if (clearBtn) {
+                clearBtn.onclick = (e) => {
+                    e.preventDefault();
+                    input.value = '';
+                    state.volumeSearchTerm = '';
+                    filterVolumeTable();
+                    input.focus();
+                };
+            }
+            filterVolumeTable();
+        }
+
         // Extract configuration data from log lines
         function extractConfigData(line, timestamp, podName, level) {
             // level is now passed as a parameter for efficiency
@@ -3713,102 +4145,8 @@
                 return;
             }
 
-            // Extract Volume/LUN mappings from NodeStageVolume
-            if (line.indexOf('NodeStageVolume') !== -1 && line.indexOf('Volume ID') !== -1) {
-                const volumeIdMatch = line.match(/Volume ID \[([^\]]+)\]/);
-                const mappingsMatch = line.match(/mappings:\[([^\]]+)\]/);
-                const ldevMatch = line.match(/ldevIDDec:(\d+)/);
-                const ldevHexMatch = line.match(/ldevIDHex:([0-9a-fA-F:]+)/);
-                const nicknameMatch = line.match(/nickname:([^\s\]]+)/);
-                const sizeMatch = line.match(/size:([^\s\]]+)/);
-                const portsMatch = line.match(/ports:([^\s\]]+)/);
-                
-                if (volumeIdMatch && ldevMatch) {
-                    const volumeId = volumeIdMatch[1];
-                    const ldevId = ldevMatch[1];
-                    const ldevHex = ldevHexMatch ? ldevHexMatch[1] : '';
-                    const nickname = nicknameMatch ? nicknameMatch[1] : '';
-                    const size = sizeMatch ? sizeMatch[1] : '';
-                    const ports = portsMatch ? portsMatch[1].split(',') : [];
-
-                    // Extract storage array serial from Volume ID (format: 01--scsi--SERIAL--LDEV--...)
-                    const serialMatch = volumeId.match(/--(\d+)--/);
-                    const arraySerial = serialMatch ? serialMatch[1] : 'Unknown';
-
-                    if (!state.config.volumes[volumeId]) {
-                        state.config.volumes[volumeId] = {
-                            volumeId: volumeId,
-                            ldevId: ldevId,
-                            ldevHex: ldevHex,
-                            nickname: nickname,
-                            size: size,
-                            ports: ports,
-                            mappings: [],
-                            nodes: new Set(),
-                            arraySerial: arraySerial,
-                            errors: 0,
-                            warnings: 0
-                        };
-                    }
-
-                    // Track errors/warnings for this volume
-                    if (level === 'ERROR') state.config.volumes[volumeId].errors++;
-                    if (level === 'WARNING') state.config.volumes[volumeId].warnings++;
-
-                    // Parse mappings
-                    if (mappingsMatch) {
-                        try {
-                            const mappingsJson = '[' + mappingsMatch[1] + ']';
-                            const mappings = JSON.parse(mappingsJson);
-                            for (const mapping of mappings) {
-                                const existing = state.config.volumes[volumeId].mappings.find(
-                                    m => m.identifier === mapping.identifier && m.lun === mapping.lun
-                                );
-                                if (!existing) {
-                                    state.config.volumes[volumeId].mappings.push(mapping);
-                                }
-                            }
-                        } catch (e) {
-                            // Ignore JSON parse errors
-                        }
-                    }
-
-                    state.config.volumes[volumeId].nodes.add(podName);
-                    
-                    // Track storage array
-                    if (!state.config.arrays[arraySerial]) {
-                        state.config.arrays[arraySerial] = {
-                            serial: arraySerial,
-                            volumes: new Set(),
-                            ports: new Set(),
-                            errors: 0,
-                            warnings: 0
-                        };
-                    }
-                    state.config.arrays[arraySerial].volumes.add(volumeId);
-                    if (level === 'ERROR') state.config.arrays[arraySerial].errors++;
-                    if (level === 'WARNING') state.config.arrays[arraySerial].warnings++;
-
-                    // Track port usage - use composite key (port:arraySerial) to handle same port name on different arrays
-                    for (const port of ports) {
-                        const portKey = `${port}:${arraySerial}`;
-                        if (!state.config.ports[portKey]) {
-                            state.config.ports[portKey] = {
-                                name: port,
-                                volumes: new Set(),
-                                arraySerial: arraySerial,
-                                errors: 0,
-                                warnings: 0
-                            };
-                        }
-                        state.config.ports[portKey].volumes.add(volumeId);
-                        state.config.arrays[arraySerial].ports.add(port);
-                        
-                        if (level === 'ERROR') state.config.ports[portKey].errors++;
-                        if (level === 'WARNING') state.config.ports[portKey].warnings++;
-                    }
-                }
-            }
+            // Extract Volume/LUN mappings from NodeStageVolume / NodePublishVolume
+            applyVolumeConfigFromLine(line, podName, level);
         }
 
         // Helper function to get cluster context content (handles both old string format and new object format)
@@ -5863,9 +6201,19 @@
             if (volumeCount > 0) {
                 html += `
                     <div id="volumes-section" class="config-section">
-                        <div class="config-section-header">
-                            <span>💾 Volumes & LUN Mappings</span>
-                            <span class="config-section-count">${volumeCount} volumes</span>
+                        <div class="config-section-header config-section-header-with-search">
+                            <div class="config-section-title-group">
+                                <span>💾 Volumes & LUN Mappings</span>
+                                <div class="config-section-toolbar config-section-toolbar-left">
+                                    <label class="config-search-label" for="volumeSearchInput">Filter</label>
+                                    <div class="config-search-box search-box">
+                                        <span class="config-search-icon" aria-hidden="true">⌕</span>
+                                        <input type="text" id="volumeSearchInput" placeholder="LDEV, nickname, LUN, WWN, node…" autocomplete="off">
+                                        <span class="search-clear" id="volumeSearchClear" title="Clear search">✕</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <span class="config-section-count" id="volumeSearchCount">${volumeCount} volume${volumeCount !== 1 ? 's' : ''}</span>
                         </div>
                         <table class="config-table">
                             <thead>
@@ -5875,7 +6223,8 @@
                                     <th>Array</th>
                                     <th>Size</th>
                                     <th>Ports</th>
-                                    <th>LUN Mappings</th>
+                                    <th>LUN Mappings (by Host)</th>
+                                    <th>Nodes</th>
                                     <th>Status</th>
                                 </tr>
                             </thead>
@@ -5885,51 +6234,39 @@
                 const sortedVolumes = Object.values(filteredVolumes).sort((a, b) => 
                     parseInt(a.ldevId) - parseInt(b.ldevId)
                 );
+                const wwpnToHost = buildWwpnToHostLookup(filteredHosts);
 
                 for (const vol of sortedVolumes) {
                     const rowClass = vol.errors > 0 ? 'row-with-error' : (vol.warnings > 0 ? 'row-with-warning' : '');
-                    const portsHtml = vol.ports.map(p => `<span class="port-badge">${p}</span>`).join(' ');
+                    const uniquePorts = [...new Set(vol.ports || [])];
+                    const portsHtml = uniquePorts.map(p => `<span class="port-badge">${p}</span>`).join(' ');
                     
                     let statusBadges = '';
                     if (vol.errors > 0) statusBadges += `<span class="issue-badge error-badge">${vol.errors} ERROR${vol.errors > 1 ? 'S' : ''}</span>`;
                     if (vol.warnings > 0) statusBadges += `<span class="issue-badge warning-badge">${vol.warnings} WARNING${vol.warnings > 1 ? 'S' : ''}</span>`;
                     if (!statusBadges) statusBadges = '<span style="color: var(--text-secondary); font-size: 11px;">OK</span>';
 
-                    // Group LUNs by WWPN
-                    const lunsByWwpn = {};
-                    for (const mapping of vol.mappings) {
-                        if (!lunsByWwpn[mapping.identifier]) {
-                            lunsByWwpn[mapping.identifier] = [];
-                        }
-                        if (!lunsByWwpn[mapping.identifier].includes(mapping.lun)) {
-                            lunsByWwpn[mapping.identifier].push(mapping.lun);
-                        }
-                    }
+                    const lunsHtml = renderVolumeLunMappingsHtml(vol.mappings, wwpnToHost) || '-';
 
-                    let lunsHtml = '';
-                    for (const [wwpn, luns] of Object.entries(lunsByWwpn)) {
-                        const shortWwpn = wwpn.substring(wwpn.length - 8);
-                        lunsHtml += `<div style="margin: 2px 0;">
-                            <span style="color: var(--text-secondary); font-size: 10px;">${shortWwpn}:</span> `;
-                        for (const lun of luns) {
-                            lunsHtml += `<span class="lun-badge">${lun}</span>`;
-                        }
-                        lunsHtml += '</div>';
-                    }
-
-                    const arrayShort = vol.arraySerial.substring(vol.arraySerial.length - 6);
+                    const arraySerial = vol.arraySerial || extractArraySerialFromVolumeId(vol.volumeId);
+                    const arrayShort = arraySerial !== 'Unknown'
+                        ? arraySerial.substring(Math.max(0, arraySerial.length - 6))
+                        : '-';
+                    const nodeCount = vol.nodes ? vol.nodes.size : 0;
+                    const volumeSearchText = buildVolumeSearchText(vol, wwpnToHost);
 
                     html += `
-                        <tr class="${rowClass}">
+                        <tr class="volume-table-row ${rowClass}" data-volume-search="${escapeHtml(volumeSearchText)}">
                             <td>
                                 <span class="ldev-id">${vol.ldevId}</span>
-                                <br><span style="font-size: 10px; color: var(--text-secondary);">${vol.ldevHex}</span>
+                                <br><span style="font-size: 10px; color: var(--text-secondary);">${vol.ldevHex || '-'}</span>
                             </td>
                             <td><span class="volume-nickname">${vol.nickname || '-'}</span></td>
-                            <td style="font-size: 10px; color: var(--text-secondary);">...${arrayShort}</td>
-                            <td><strong>${vol.size}</strong></td>
+                            <td style="font-size: 10px; color: var(--text-secondary);">${arrayShort}</td>
+                            <td><strong>${vol.size || '-'}</strong></td>
                             <td>${portsHtml || '-'}</td>
                             <td>${lunsHtml || '-'}</td>
+                            <td style="font-size: 11px; text-align: center;">${nodeCount || '-'}</td>
                             <td>${statusBadges}</td>
                         </tr>
                     `;
@@ -5938,64 +6275,26 @@
                 html += `
                             </tbody>
                         </table>
+                        <div id="volumeSearchEmpty" class="volume-search-empty" style="display: none;">
+                            No volumes match your search.
+                        </div>
                     </div>
                 `;
             }
-
-            // Port Usage Summary - build from storage classes (source of truth)
-            // portsInfo was already built above for the count, now enrich with log data
-            if (portsInfo.size > 0) {
-                filteredStorageClasses.forEach(sc => {
-                    const serial = sc.parameters && sc.parameters.serialNumber ? sc.parameters.serialNumber.trim() : null;
-                    if (!serial) return;
-                    
-                    // Collect ports from this storage class and create entries
-                    if (sc.parameters) {
-                        const portParams = [];
-                        if (sc.parameters.portID) {
-                            portParams.push(...sc.parameters.portID.split(',').map(p => p.trim()));
-                        }
-                        if (sc.parameters.primaryPortID) {
-                            portParams.push(...sc.parameters.primaryPortID.split(',').map(p => p.trim()));
-                        }
-                        if (sc.parameters.secondaryPortID) {
-                            portParams.push(...sc.parameters.secondaryPortID.split(',').map(p => p.trim()));
-                        }
-                        
-                        // Create port entries with composite keys (port:arraySerial)
-                        for (const portName of portParams) {
-                            if (!portName) continue;
-                            const portKey = `${portName}:${serial}`;
-                            
-                            if (!portsInfo.has(portKey)) {
-                                portsInfo.set(portKey, {
-                                    name: portName,
-                                    arraySerial: serial,
-                                    volumes: new Set(),
-                                    errors: 0,
-                                    warnings: 0
-                                });
-                            }
-                        }
-                    }
-                });
-            }
-            
-            // Enrich port entries with data from logs (volumes, errors, warnings)
             for (const [portKey, portInfo] of portsInfo.entries()) {
-                // Find matching port in filteredPorts (from logs) to get volume and error data
-                const logPort = filteredPorts[portKey];
+                const logPort = filteredPorts[portKey] || filteredPorts[`${portInfo.name}:${normalizeArraySerial(portInfo.arraySerial)}`];
                 if (logPort) {
-                    // Merge volume data
                     if (logPort.volumes && logPort.volumes instanceof Set) {
                         for (const volId of logPort.volumes) {
                             portInfo.volumes.add(volId);
                         }
                     }
-                    // Merge error/warning counts
                     portInfo.errors += logPort.errors || 0;
                     portInfo.warnings += logPort.warnings || 0;
                 }
+            }
+            for (const vol of Object.values(filteredVolumes)) {
+                attachVolumeToPortUsage(portsInfo, vol);
             }
             
             if (portsInfo.size > 0) {
@@ -6053,6 +6352,7 @@
             
             html += '</div>';
             configContent.innerHTML = html;
+            setupVolumeSearch();
         }
         
         // Render Storage Classes section (extracted for reuse)
