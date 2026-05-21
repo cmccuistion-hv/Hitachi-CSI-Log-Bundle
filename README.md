@@ -263,6 +263,7 @@ Alternatively, download `Hitachi-CSI-log-Bundle-Viewer.html` from this repositor
 - **AI Analysis**: Analyze the loaded log bundle with an LLM (OpenAI-compatible API) to get a prioritized list of issues and recommended next steps.
   - Configurable API key, endpoint URL, and model (e.g. gpt-4o-mini); API key is sent only to your chosen provider.
   - Rich analysis payload: environment summary (platform, versions, node count), error categories with counts, key identifiers (HSPC codes, volume IDs), smart error-line sampling, config summary, cluster context excerpt, and pod/node health.
+  - Default completion limit of **16,384 tokens** for analysis and chat (supports fuller responses on models such as GPT-4o / GPT-4o-mini; provider may cap to the model maximum).
   - Results shown as priority-ranked issue cards (high/medium/low) with evidence, root cause, and recommended actions; markdown output with safe HTML (DOMPurify).
   - **Chat**: Follow-up questions about your logs; relevant excerpts are sent to the model. Copy, save, or clear chat history. Collapsible sections for setup, results, and chat.
 - **Multi-Cluster Support**: View and filter logs, health data, and configuration by cluster when using multi-cluster bundles

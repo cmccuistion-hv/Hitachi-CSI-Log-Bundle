@@ -1736,7 +1736,7 @@
     <script>
 
         // Version Configuration
-        const VERSION = '1.7.0';
+        const VERSION = '1.7.0.1';
         const GITHUB_REPO = 'cmccuistion-hv/Hitachi-CSI-Log-Bundle';
         const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`;
         const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
@@ -3297,6 +3297,10 @@
             return { systemPrompt: systemPrompt, userPrompt: userPrompt };
         }
 
+        // Default max completion tokens for analysis and chat. GPT-4o / GPT-4o-mini support 16k output;
+        // many other modern OpenAI-compatible models accept similar or higher (provider may cap to model max).
+        var DEFAULT_LLM_MAX_OUTPUT_TOKENS = 16384;
+
         // Call LLM API (OpenAI-compatible: /v1/chat/completions). Returns { ok, result, error }.
         async function callAnalysisAPI(apiKey, payload, options) {
             options = options || {};
@@ -3309,7 +3313,7 @@
                     { role: 'system', content: prompts.systemPrompt },
                     { role: 'user', content: prompts.userPrompt }
                 ],
-                max_tokens: options.max_tokens || 8192,
+                max_tokens: options.max_tokens != null ? options.max_tokens : DEFAULT_LLM_MAX_OUTPUT_TOKENS,
                 temperature: 0.3
             };
             try {
@@ -3519,7 +3523,7 @@
                 var response = await fetch(baseUrl + '/chat/completions', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
-                    body: JSON.stringify({ model: model, messages: messages, max_tokens: options.max_tokens || 8192, temperature: 0.3 })
+                    body: JSON.stringify({ model: model, messages: messages, max_tokens: options.max_tokens != null ? options.max_tokens : DEFAULT_LLM_MAX_OUTPUT_TOKENS, temperature: 0.3 })
                 });
                 var data = await response.json().catch(function() { return {}; });
                 if (!response.ok) {
