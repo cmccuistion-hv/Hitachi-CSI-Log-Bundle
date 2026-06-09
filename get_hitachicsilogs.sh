@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Hitachi HSPC CSI Driver Log Bundle Collector v1.7.0
+# Hitachi HSPC CSI Driver Log Bundle Collector v1.7.1
 # - --kubeconfig is completely optional (uses default or $KUBECONFIG if present)
 # - Full OpenShift auto-detect + smart fallback to ./oc
 # - All manifests with status (deployments, daemonsets, replicasets)
@@ -14,7 +14,7 @@
 set -euo pipefail
 
 # Script version
-SCRIPT_VERSION="1.7.0-sh"
+SCRIPT_VERSION="1.7.1-sh"
 
 # Cancellation handling
 CANCELLED=false
@@ -709,6 +709,16 @@ collect_from_cluster() {
                 done
             else
                 echo "No HSPC StorageClasses found"
+            fi
+            
+            echo -e "\n=== HSPC VolumeSnapshotClasses ==="
+            vsc_names=$(KUBE_WITH_CONFIG "$kubeconfig" get volumesnapshotclass -o jsonpath='{range .items[?(@.driver=="hspc.csi.hitachi.com")]}{.metadata.name}{"\n"}{end}' 2>/dev/null | grep -v '^$' || true)
+            if [[ -n "$vsc_names" ]]; then
+                echo "$vsc_names" | while read -r vsc; do
+                    [[ -n "$vsc" ]] && KUBE_WITH_CONFIG "$kubeconfig" get volumesnapshotclass "$vsc" -o yaml 2>/dev/null || true
+                done
+            else
+                echo "No HSPC VolumeSnapshotClasses found"
             fi
             
             # Collect Custom Resources if DR-Operator detected

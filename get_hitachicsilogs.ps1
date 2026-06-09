@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Hitachi HSPC CSI Driver Log Bundle Collector v1.7.0 - PowerShell Edition
+    Hitachi HSPC CSI Driver Log Bundle Collector v1.7.1 - PowerShell Edition
     -Kubeconfig optional · auto-detect OpenShift · full manifests
     -Collects logs from ALL containers in each pod
     -Supports dual-cluster collection with DR-Operator detection
@@ -76,7 +76,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 # Script version
-$SCRIPT_VERSION = "1.7.0-ps1"
+$SCRIPT_VERSION = "1.7.1-ps1"
 
 # Cancellation handling
 $script:Cancelled = $false
@@ -1027,6 +1027,22 @@ function Get-FromCluster {
         }
     } catch {
         "Error retrieving HSPC StorageClasses" | Out-File -Encoding utf8 -Append $contextFile
+    }
+    
+    "`n=== HSPC VolumeSnapshotClasses ===" | Out-File -Encoding utf8 -Append $contextFile
+    try {
+        $ErrorActionPreference = 'SilentlyContinue'
+        $vscNames = (Invoke-KubeWithConfig -KubeconfigPath $KubeconfigPath get volumesnapshotclass -o jsonpath='{range .items[?(@.driver=="hspc.csi.hitachi.com")]}{.metadata.name}{"\n"}{end}' 2>$null).Trim() -split "`n" | Where-Object { $_.Length -gt 0 }
+        $ErrorActionPreference = 'Stop'
+        if ($vscNames.Count -gt 0) {
+            foreach ($vsc in $vscNames) {
+                Invoke-KubeWithConfig -KubeconfigPath $KubeconfigPath get volumesnapshotclass $vsc -o yaml | Out-File -Encoding utf8 -Append $contextFile
+            }
+        } else {
+            "No HSPC VolumeSnapshotClasses found" | Out-File -Encoding utf8 -Append $contextFile
+        }
+    } catch {
+        "Error retrieving HSPC VolumeSnapshotClasses" | Out-File -Encoding utf8 -Append $contextFile
     }
     
     # Collect Custom Resources if DR-Operator detected

@@ -1862,7 +1862,7 @@
     <script>
 
         // Version Configuration
-        const VERSION = '1.7.0.2';
+        const VERSION = '1.7.1';
         const GITHUB_REPO = 'cmccuistion-hv/Hitachi-CSI-Log-Bundle';
         const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`;
         const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
@@ -1930,6 +1930,7 @@
                 arrays: {},          // array serial -> array info
                 events: [],          // timeline of config changes
                 storageClasses: [],  // Array of parsed storage class objects
+                volumeSnapshotClasses: [],  // Array of parsed VolumeSnapshotClass objects
                 customResources: {}  // cluster-name -> { localVolumes: [], remoteVolumes: [], replications: [], drPolicies: [] }
             },
             // Lazy parsing flags (performance optimization)
@@ -2428,6 +2429,7 @@
                 arrays: {},
                 events: [],
                 storageClasses: [],
+                volumeSnapshotClasses: [],
                 customResources: {}
             };
             // Reset health tracking data
@@ -3348,7 +3350,8 @@
                     arrayCount: Object.keys(c.arrays || {}).length,
                     portCount: Object.keys(c.ports || {}).length,
                     eventCount: (c.events || []).length,
-                    storageClassNames: (c.storageClasses || []).map(function(sc) { return sc.name; }).filter(Boolean)
+                    storageClassNames: (c.storageClasses || []).map(function(sc) { return sc.name; }).filter(Boolean),
+                    volumeSnapshotClassNames: (c.volumeSnapshotClasses || []).map(function(vsc) { return vsc.name; }).filter(Boolean)
                 };
                 const hostsWithErrors = c.hosts ? Object.entries(c.hosts).filter(function(e) { return e[1].errors > 0; }).map(function(e) { return e[0]; }).slice(0, 20) : [];
                 const volumesWithErrors = c.volumes ? Object.entries(c.volumes).filter(function(e) { return e[1].errors > 0; }).map(function(e) { return e[0]; }).slice(0, 20) : [];
@@ -4449,87 +4452,152 @@
             }
             
             parseStorageClasses(clusterContextContent);
+            parseVolumeSnapshotClasses(clusterContextContent);
             state.lazyParsed.storageClasses = true;
         }
         
+        function parseStorageClassBlock(block) {
+            try {
+                const sc = {
+                    name: null,
+                    isDefault: false,
+                    type: 'standard',
+                    provisioner: null,
+                    reclaimPolicy: null,
+                    volumeBindingMode: null,
+                    allowVolumeExpansion: false,
+                    parameters: {},
+                    creationTimestamp: null,
+                    yaml: null
+                };
+
+                const nameMatch = block.match(/^\s*name:\s*(.+)$/m);
+                if (nameMatch) sc.name = nameMatch[1].trim();
+
+                const provisionerMatch = block.match(/^provisioner:\s*(.+)$/m);
+                if (provisionerMatch) sc.provisioner = provisionerMatch[1].trim();
+
+                const reclaimMatch = block.match(/^reclaimPolicy:\s*(.+)$/m);
+                if (reclaimMatch) sc.reclaimPolicy = reclaimMatch[1].trim();
+
+                const bindingMatch = block.match(/^volumeBindingMode:\s*(.+)$/m);
+                if (bindingMatch) sc.volumeBindingMode = bindingMatch[1].trim();
+
+                const expansionMatch = block.match(/^allowVolumeExpansion:\s*(.+)$/m);
+                if (expansionMatch) sc.allowVolumeExpansion = expansionMatch[1].trim() === 'true';
+
+                const defaultMatch = block.match(/storageclass\.kubernetes\.io\/is-default-class:\s*"true"/);
+                if (defaultMatch) sc.isDefault = true;
+
+                const timestampMatch = block.match(/creationTimestamp:\s*"([^"]+)"/);
+                if (timestampMatch) sc.creationTimestamp = timestampMatch[1].trim();
+
+                const paramsMatch = block.match(/^parameters:\s*\n((?:^\s{2}\S.*\n?)+)/m);
+                if (paramsMatch) {
+                    const paramsSection = paramsMatch[1];
+                    const paramLines = paramsSection.split('\n').filter(l => l.trim());
+
+                    for (const line of paramLines) {
+                        const paramMatch = line.match(/^\s{2}(\S+):\s*(.+)$/);
+                        if (paramMatch) {
+                            const key = paramMatch[1].trim();
+                            const value = paramMatch[2].trim().replace(/^["']|["']$/g, '');
+                            sc.parameters[key] = value;
+                        }
+                    }
+                }
+
+                if (sc.parameters.replicationType === 'stretched') {
+                    sc.type = 'stretched';
+                }
+
+                if (sc.name) {
+                    sc.yaml = block.trim();
+                    return sc;
+                }
+            } catch (e) {
+                console.error('Error parsing storage class block:', e);
+            }
+            return null;
+        }
+
         // Parse Storage Classes from cluster context
         function parseStorageClasses(content) {
             state.config.storageClasses = [];
-            
-            // Find the "=== HSPC StorageClasses ===" section
+
             const scSectionMatch = content.match(/===\s+HSPC StorageClasses\s+===\n([\s\S]*?)(?:\n===|$)/);
             if (!scSectionMatch) return;
-            
+
             const scSection = scSectionMatch[1];
-            
-            // Split by "allowVolumeExpansion:" which marks the beginning of each StorageClass
             const scBlocks = scSection.split(/(?=^allowVolumeExpansion:)/m).filter(b => b.trim() && b.includes('kind: StorageClass'));
-            
+
             for (const block of scBlocks) {
+                const sc = parseStorageClassBlock(block);
+                if (sc) state.config.storageClasses.push(sc);
+            }
+        }
+
+        function parseVolumeSnapshotClassBlocks(sectionText) {
+            const results = [];
+            if (!sectionText || !sectionText.trim()) return results;
+            const vscBlocks = sectionText.split(/(?=^apiVersion: snapshot\.storage\.k8s\.io\/)/m).filter(b => b.trim() && b.includes('kind: VolumeSnapshotClass'));
+            for (const block of vscBlocks) {
                 try {
-                    const sc = {
+                    const vsc = {
                         name: null,
-                        isDefault: false,
-                        type: 'standard', // 'standard' or 'stretched'
-                        provisioner: null,
-                        reclaimPolicy: null,
-                        volumeBindingMode: null,
-                        allowVolumeExpansion: false,
+                        driver: null,
+                        deletionPolicy: null,
                         parameters: {},
-                        creationTimestamp: null
+                        storageClassRef: null,
+                        description: null,
+                        isVelero: false,
+                        creationTimestamp: null,
+                        yaml: null
                     };
-                    
-                    // Parse basic fields
                     const nameMatch = block.match(/^\s*name:\s*(.+)$/m);
-                    if (nameMatch) sc.name = nameMatch[1].trim();
-                    
-                    const provisionerMatch = block.match(/^provisioner:\s*(.+)$/m);
-                    if (provisionerMatch) sc.provisioner = provisionerMatch[1].trim();
-                    
-                    const reclaimMatch = block.match(/^reclaimPolicy:\s*(.+)$/m);
-                    if (reclaimMatch) sc.reclaimPolicy = reclaimMatch[1].trim();
-                    
-                    const bindingMatch = block.match(/^volumeBindingMode:\s*(.+)$/m);
-                    if (bindingMatch) sc.volumeBindingMode = bindingMatch[1].trim();
-                    
-                    const expansionMatch = block.match(/^allowVolumeExpansion:\s*(.+)$/m);
-                    if (expansionMatch) sc.allowVolumeExpansion = expansionMatch[1].trim() === 'true';
-                    
-                    const defaultMatch = block.match(/storageclass\.kubernetes\.io\/is-default-class:\s*"true"/);
-                    if (defaultMatch) sc.isDefault = true;
-                    
+                    if (nameMatch) vsc.name = nameMatch[1].trim();
+                    const driverMatch = block.match(/^driver:\s*(.+)$/m);
+                    if (driverMatch) vsc.driver = driverMatch[1].trim();
+                    const deletionMatch = block.match(/^deletionPolicy:\s*(.+)$/m);
+                    if (deletionMatch) vsc.deletionPolicy = deletionMatch[1].trim();
+                    const scRefMatch = block.match(/^\s+storageclass-ref:\s*(.+)$/m);
+                    if (scRefMatch) vsc.storageClassRef = scRefMatch[1].trim().replace(/^["']|["']$/g, '');
+                    const descMatch = block.match(/^\s+kubernetes\.io\/description:\s*(.+)$/m);
+                    if (descMatch) vsc.description = descMatch[1].trim().replace(/^["']|["']$/g, '');
+                    if (/velero\.io\/csi-volumesnapshot-class:\s*"?true"?/m.test(block)) {
+                        vsc.isVelero = true;
+                    }
                     const timestampMatch = block.match(/creationTimestamp:\s*"([^"]+)"/);
-                    if (timestampMatch) sc.creationTimestamp = timestampMatch[1].trim();
-                    
-                    // Parse parameters section
+                    if (timestampMatch) vsc.creationTimestamp = timestampMatch[1].trim();
                     const paramsMatch = block.match(/^parameters:\s*\n((?:^\s{2}\S.*\n?)+)/m);
                     if (paramsMatch) {
                         const paramsSection = paramsMatch[1];
                         const paramLines = paramsSection.split('\n').filter(l => l.trim());
-                        
                         for (const line of paramLines) {
                             const paramMatch = line.match(/^\s{2}(\S+):\s*(.+)$/);
                             if (paramMatch) {
                                 const key = paramMatch[1].trim();
                                 const value = paramMatch[2].trim().replace(/^["']|["']$/g, '');
-                                sc.parameters[key] = value;
+                                vsc.parameters[key] = value;
                             }
                         }
                     }
-                    
-                    // Determine if this is a stretched (GAD) storage class
-                    if (sc.parameters.replicationType === 'stretched') {
-                        sc.type = 'stretched';
-                    }
-                    
-                    // Only add if we got a name
-                    if (sc.name) {
-                        state.config.storageClasses.push(sc);
+                    if (vsc.name) {
+                        vsc.yaml = block.trim();
+                        results.push(vsc);
                     }
                 } catch (e) {
-                    console.error('Error parsing storage class block:', e);
+                    console.error('Error parsing volume snapshot class block:', e);
                 }
             }
+            return results;
+        }
+
+        function parseVolumeSnapshotClasses(content) {
+            state.config.volumeSnapshotClasses = [];
+            const vscSectionMatch = content.match(/===\s+HSPC VolumeSnapshotClasses\s+===\n([\s\S]*?)(?:\n===|$)/);
+            if (!vscSectionMatch) return;
+            state.config.volumeSnapshotClasses = parseVolumeSnapshotClassBlocks(vscSectionMatch[1]);
         }
 
         // Update UI
@@ -5707,6 +5775,7 @@
             if (!cluster) {
                 return {
                     storageClasses: state.config.storageClasses || [],
+                    volumeSnapshotClasses: state.config.volumeSnapshotClasses || [],
                     arrays: new Set(),
                     ports: new Set()
                 };
@@ -5715,6 +5784,7 @@
             // Get storage classes directly from this cluster's context (don't filter by volumes)
             const clusterContextContent = getClusterContext(cluster);
             const clusterStorageClasses = [];
+            const clusterVolumeSnapshotClasses = [];
             
             if (clusterContextContent) {
                 // Parse storage classes from this cluster's context
@@ -5722,72 +5792,16 @@
                 if (scSectionMatch) {
                     const scSection = scSectionMatch[1];
                     const scBlocks = scSection.split(/(?=^allowVolumeExpansion:)/m).filter(b => b.trim() && b.includes('kind: StorageClass'));
-                    
+
                     for (const block of scBlocks) {
-                        try {
-                            const sc = {
-                                name: null,
-                                isDefault: false,
-                                type: 'standard',
-                                provisioner: null,
-                                reclaimPolicy: null,
-                                volumeBindingMode: null,
-                                allowVolumeExpansion: false,
-                                parameters: {},
-                                creationTimestamp: null
-                            };
-                            
-                            // Parse basic fields
-                            const nameMatch = block.match(/^\s*name:\s*(.+)$/m);
-                            if (nameMatch) sc.name = nameMatch[1].trim();
-                            
-                            const provisionerMatch = block.match(/^provisioner:\s*(.+)$/m);
-                            if (provisionerMatch) sc.provisioner = provisionerMatch[1].trim();
-                            
-                            const reclaimMatch = block.match(/^reclaimPolicy:\s*(.+)$/m);
-                            if (reclaimMatch) sc.reclaimPolicy = reclaimMatch[1].trim();
-                            
-                            const bindingMatch = block.match(/^volumeBindingMode:\s*(.+)$/m);
-                            if (bindingMatch) sc.volumeBindingMode = bindingMatch[1].trim();
-                            
-                            const expansionMatch = block.match(/^allowVolumeExpansion:\s*(.+)$/m);
-                            if (expansionMatch) sc.allowVolumeExpansion = expansionMatch[1].trim() === 'true';
-                            
-                            const defaultMatch = block.match(/storageclass\.kubernetes\.io\/is-default-class:\s*"true"/);
-                            if (defaultMatch) sc.isDefault = true;
-                            
-                            const timestampMatch = block.match(/creationTimestamp:\s*"([^"]+)"/);
-                            if (timestampMatch) sc.creationTimestamp = timestampMatch[1].trim();
-                            
-                            // Parse parameters section
-                            const paramsMatch = block.match(/^parameters:\s*\n((?:^\s{2}\S.*\n?)+)/m);
-                            if (paramsMatch) {
-                                const paramsSection = paramsMatch[1];
-                                const paramLines = paramsSection.split('\n').filter(l => l.trim());
-                                
-                                for (const line of paramLines) {
-                                    const paramMatch = line.match(/^\s{2}(\S+):\s*(.+)$/);
-                                    if (paramMatch) {
-                                        const key = paramMatch[1].trim();
-                                        const value = paramMatch[2].trim().replace(/^["']|["']$/g, '');
-                                        sc.parameters[key] = value;
-                                    }
-                                }
-                            }
-                            
-                            // Determine if this is a stretched (GAD) storage class
-                            if (sc.parameters.replicationType === 'stretched') {
-                                sc.type = 'stretched';
-                            }
-                            
-                            // Only add if we got a name
-                            if (sc.name) {
-                                clusterStorageClasses.push(sc);
-                            }
-                        } catch (e) {
-                            console.error('Error parsing storage class block:', e);
-                        }
+                        const sc = parseStorageClassBlock(block);
+                        if (sc) clusterStorageClasses.push(sc);
                     }
+                }
+                
+                const vscSectionMatch = clusterContextContent.match(/===\s+HSPC VolumeSnapshotClasses\s+===\n([\s\S]*?)(?:\n===|$)/);
+                if (vscSectionMatch) {
+                    clusterVolumeSnapshotClasses.push(...parseVolumeSnapshotClassBlocks(vscSectionMatch[1]));
                 }
             }
             
@@ -5848,6 +5862,7 @@
             
             return {
                 storageClasses: clusterStorageClasses, // All storage classes from cluster context
+                volumeSnapshotClasses: clusterVolumeSnapshotClasses,
                 arrays: usedArrays,
                 ports: usedPorts
             };
@@ -5867,6 +5882,7 @@
             // Get cluster-specific storage resources first (needed for port filtering)
             const clusterResources = getClusterStorageResources(state.currentCluster);
             const filteredStorageClasses = clusterResources.storageClasses;
+            const filteredVolumeSnapshotClasses = clusterResources.volumeSnapshotClasses;
             const clusterArrays = clusterResources.arrays;
             const clusterPorts = clusterResources.ports;
             
@@ -5919,6 +5935,7 @@
             const multipathNodeCount = Object.keys(mpNodes).length;
             const volumeCount = Object.keys(filteredVolumes).length;
             const storageClassCount = filteredStorageClasses.length;
+            const volumeSnapshotClassCount = filteredVolumeSnapshotClasses.length;
             
             // Build ports from storage classes (will be used for count and table)
             const portsInfo = new Map();
@@ -5974,11 +5991,10 @@
                     }
                 });
             }
-            
-            // Array count is now based ONLY on storage classes
+            // Array count is based on storage classes (VSCs link via storageclass-ref label)
             const arrayCount = arraysFromSC.size;
 
-            if (hostCount === 0 && volumeCount === 0 && arrayCount === 0 && storageClassCount === 0) {
+            if (hostCount === 0 && volumeCount === 0 && arrayCount === 0 && storageClassCount === 0 && volumeSnapshotClassCount === 0) {
                 configContent.innerHTML = `
                     <div class="empty-state">
                         <div class="empty-state-icon">📋</div>
@@ -6041,6 +6057,10 @@
                         <div class="config-card-title">Storage Classes</div>
                         <div class="config-card-value">${storageClassCount}</div>
                     </div>
+                    <div class="config-card clickable-card" onclick="scrollToSection('volume-snapshot-classes-section')" title="Click to view Volume Snapshot Classes">
+                        <div class="config-card-title">Volume Snapshot Classes</div>
+                        <div class="config-card-value">${volumeSnapshotClassCount}</div>
+                    </div>
                     <div class="config-card clickable-card" onclick="scrollToSection('hosts-wwns-section')" title="Nodes with host WWN data found in collected CSI node driver logs${csiNodePodCount > wwnNodeCount ? ' (' + wwnNodeCount + ' of ' + csiNodePodCount + ' CSI node pods)' : ''}">
                         <div class="config-card-title">Nodes w/ WWN in Logs</div>
                         <div class="config-card-value">${wwnNodeCount}</div>
@@ -6061,34 +6081,34 @@
                 </div>
             `;
 
-            // Storage Arrays Table (from storage classes ONLY)
+            // Storage Arrays Table (from storage classes and volume snapshot classes)
             if (arrayCount > 0) {
-                // Build array info ONLY from storage classes (definitive source)
                 const arraysInfo = new Map();
+                
+                function ensureArrayInfo(serial) {
+                    if (!arraysInfo.has(serial)) {
+                        arraysInfo.set(serial, {
+                            serial: serial,
+                            storageClasses: [],
+                            volumeSnapshotClasses: [],
+                            ports: new Set(),
+                            errors: 0,
+                            warnings: 0
+                        });
+                    }
+                    return arraysInfo.get(serial);
+                }
                 
                 if (filteredStorageClasses && filteredStorageClasses.length > 0) {
                     filteredStorageClasses.forEach(sc => {
                         const serial = sc.parameters && sc.parameters.serialNumber ? sc.parameters.serialNumber.trim() : null;
                         if (!serial) return;
                         
-                        // Get or create array entry
-                        if (!arraysInfo.has(serial)) {
-                            arraysInfo.set(serial, {
-                                serial: serial,
-                                storageClasses: [],
-                                ports: new Set(),
-                                errors: 0,
-                                warnings: 0
-                            });
-                        }
-                        
-                        const info = arraysInfo.get(serial);
-                        // Add storage class name if not already in the list
+                        const info = ensureArrayInfo(serial);
                         if (!info.storageClasses.includes(sc.name)) {
                             info.storageClasses.push(sc.name);
                         }
                         
-                        // Collect ports from this storage class
                         if (sc.parameters) {
                             if (sc.parameters.portID) {
                                 sc.parameters.portID.split(',').forEach(p => info.ports.add(p.trim()));
@@ -6103,8 +6123,23 @@
                     });
                 }
                 
-                // No need to merge with log data or filter - we only use storage classes
-                // arraysInfo now contains all arrays from storage classes for this cluster
+                if (filteredVolumeSnapshotClasses && filteredVolumeSnapshotClasses.length > 0) {
+                    filteredVolumeSnapshotClasses.forEach(vsc => {
+                        let serial = null;
+                        if (vsc.storageClassRef && filteredStorageClasses.length > 0) {
+                            const linkedSc = filteredStorageClasses.find(sc => sc.name === vsc.storageClassRef);
+                            if (linkedSc && linkedSc.parameters && linkedSc.parameters.serialNumber) {
+                                serial = linkedSc.parameters.serialNumber.trim();
+                            }
+                        }
+                        if (!serial) return;
+                        
+                        const info = ensureArrayInfo(serial);
+                        if (!info.volumeSnapshotClasses.includes(vsc.name)) {
+                            info.volumeSnapshotClasses.push(vsc.name);
+                        }
+                    });
+                }
                 
                 html += `
                     <div id="storage-arrays-section" class="config-section">
@@ -6116,7 +6151,7 @@
                             <thead>
                                 <tr>
                                     <th>Serial Number</th>
-                                    <th>Storage Classes</th>
+                                    <th>Storage / Snapshot Classes</th>
                                     <th>Ports</th>
                                     <th>Status</th>
                                 </tr>
@@ -6136,12 +6171,19 @@
                     if (!statusBadges) statusBadges = '<span style="color: var(--success-green);">✓ OK</span>';
 
                     const ports = Array.from(array.ports).sort().join(', ');
-                    const scList = array.storageClasses.join(', ');
+                    let classCell = array.storageClasses.join(', ') || '';
+                    if (array.volumeSnapshotClasses.length > 0) {
+                        const vscPart = array.volumeSnapshotClasses.join(', ');
+                        classCell += classCell
+                            ? `<br><span style="font-size: 10px;">Snap: ${vscPart}</span>`
+                            : `<span style="font-size: 10px;">Snap: ${vscPart}</span>`;
+                    }
+                    if (!classCell) classCell = '-';
                     
                     html += `
                         <tr class="${rowClass}">
                             <td><span class="array-serial">${array.serial}</span></td>
-                            <td style="font-size: 11px; color: var(--text-secondary);">${scList || '-'}</td>
+                            <td style="font-size: 11px; color: var(--text-secondary);">${classCell}</td>
                             <td style="font-size: 11px;">${ports}</td>
                             <td>${statusBadges}</td>
                         </tr>
@@ -6240,6 +6282,7 @@
             
             // Storage Classes (from cluster-context) - use filtered storage classes
             html += renderStorageClassesSection(filteredStorageClasses);
+            html += renderVolumeSnapshotClassesSection(filteredVolumeSnapshotClasses);
 
             // Volumes & LUNs Table
             if (volumeCount > 0) {
@@ -6397,9 +6440,29 @@
             html += '</div>';
             configContent.innerHTML = html;
             setupVolumeSearch();
+            setupConfigYamlButtons();
+        }
+
+        function setupConfigYamlButtons() {
+            document.querySelectorAll('#configContent .config-yaml-btn').forEach(btn => {
+                btn.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const kind = btn.getAttribute('data-yaml-kind');
+                    const name = btn.getAttribute('data-yaml-name');
+                    if (kind && name) {
+                        showConfigResourceYAML(kind, name);
+                    }
+                });
+            });
         }
         
         // Render Storage Classes section (extracted for reuse)
+        function renderConfigYamlButton(kind, resourceName, yaml) {
+            if (!resourceName || !yaml) return '<span style="color: var(--text-secondary); font-size: 11px;">—</span>';
+            return `<button type="button" class="copy-section-btn config-yaml-btn" data-yaml-kind="${escapeHtml(kind)}" data-yaml-name="${escapeHtml(resourceName)}" title="View ${escapeHtml(kind)} YAML">YAML</button>`;
+        }
+
         function renderStorageClassesSection(filteredStorageClasses = null) {
             // Use provided filtered storage classes, or fall back to all if not provided
             const storageClassesToRender = filteredStorageClasses || state.config.storageClasses || [];
@@ -6427,6 +6490,7 @@
                                     <th>Ports</th>
                                     <th>Connection</th>
                                     <th>Details</th>
+                                    <th style="width: 64px;">YAML</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -6453,6 +6517,7 @@
                             <td style="font-size: 11px; color: var(--text-secondary);">
                                 FS: ${fsType} • Efficiency: ${efficiency} • Reclaim: ${reclaim} • Expansion: ${expansion}
                             </td>
+                            <td>${renderConfigYamlButton('StorageClass', sc.name, sc.yaml)}</td>
                         </tr>
                     `;
                 }
@@ -6484,6 +6549,7 @@
                                     <th>Secondary Ports</th>
                                     <th>Quorum</th>
                                     <th>Details</th>
+                                    <th style="width: 64px;">YAML</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -6520,6 +6586,7 @@
                             <td style="font-size: 11px; color: var(--text-secondary);">
                                 Connection: <span class="port-badge">${connType.toUpperCase()}</span> • Reclaim: ${reclaim} • Expansion: ${expansion}
                             </td>
+                            <td>${renderConfigYamlButton('StorageClass', sc.name, sc.yaml)}</td>
                         </tr>
                     `;
                 }
@@ -6531,6 +6598,67 @@
                 `;
             }
             
+            return html;
+        }
+
+        function renderVolumeSnapshotClassesSection(filteredVolumeSnapshotClasses = null) {
+            const classesToRender = filteredVolumeSnapshotClasses || state.config.volumeSnapshotClasses || [];
+            if (classesToRender.length === 0) return '';
+
+            let html = `
+                <div id="volume-snapshot-classes-section" class="config-section">
+                    <div class="config-section-header">
+                        <span>📸 VolumeSnapshotClasses</span>
+                        <span class="config-section-count">${classesToRender.length} volumeSnapshotClass(es)</span>
+                    </div>
+                    <table class="config-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Storage Class</th>
+                                <th>Pool</th>
+                                <th>Snapshotter Secret</th>
+                                <th>Deletion Policy</th>
+                                <th>Description</th>
+                                <th style="width: 64px;">YAML</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+
+            for (const vsc of classesToRender) {
+                const poolId = vsc.parameters.poolID || '-';
+                const secretNs = vsc.parameters['csi.storage.k8s.io/snapshotter-secret-namespace'] || '';
+                const secretName = vsc.parameters['csi.storage.k8s.io/snapshotter-secret-name'] || '';
+                const secretCell = secretNs && secretName
+                    ? `${secretNs}/${secretName}`
+                    : (secretName || secretNs || '-');
+                const scRef = vsc.storageClassRef || '-';
+                const deletion = vsc.deletionPolicy || '-';
+                const veleroBadge = vsc.isVelero
+                    ? '<span style="background: var(--accent-blue); color: #fff; padding: 2px 6px; border-radius: 3px; font-size: 9px; font-weight: 600; margin-left: 6px;">VELERO</span>'
+                    : '';
+                const description = vsc.description || '-';
+
+                html += `
+                    <tr>
+                        <td><strong>${vsc.name}</strong>${veleroBadge}</td>
+                        <td style="font-size: 11px;">${scRef}</td>
+                        <td>${poolId}</td>
+                        <td style="font-size: 11px;">${secretCell}</td>
+                        <td>${deletion}</td>
+                        <td style="font-size: 11px; color: var(--text-secondary);">${description}</td>
+                        <td>${renderConfigYamlButton('VolumeSnapshotClass', vsc.name, vsc.yaml)}</td>
+                    </tr>
+                `;
+            }
+
+            html += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+
             return html;
         }
 
@@ -7198,7 +7326,7 @@
                 'Log Collection Script Version', 'Cluster Version', 'Orchestration Platform',
                 'Node OS & Runtime Information', 'HSPC CR',
                 'Deployments', 'All Deployments', 'DaemonSets', 'All DaemonSets',
-                'ReplicaSets', 'All ReplicaSets', 'HSPC StorageClasses', 'HSPC Versions',
+                'ReplicaSets', 'All ReplicaSets', 'HSPC StorageClasses', 'HSPC VolumeSnapshotClasses', 'HSPC Versions',
                 'DR Operator and HRPC Versions', 'Pod Ownership Chain', 'Pod Descriptions',
                 'Recent Events', 'LocalVolumes', 'RemoteVolumes', 'Replications',
                 'DRPolicies', 'ReplicationGroups', 'Note', 'HRPC Replication Operator Deployments'
@@ -9012,6 +9140,36 @@ ${escapeHtml(trimmedYAML)}
             return policyYAML.trim() || null;
         }
 
+        // Show YAML modal (shared by Configuration tab and DR Policies)
+        window.showYamlModal = function(title, yaml) {
+            const modal = document.getElementById('yamlModal');
+            const titleEl = document.getElementById('yamlModalTitle');
+            const content = document.getElementById('yamlModalContent');
+            if (!modal || !titleEl || !content) return;
+
+            titleEl.textContent = title;
+            content.textContent = yaml;
+            modal.classList.add('active');
+        };
+
+        window.showConfigResourceYAML = function(kind, name) {
+            const clusterResources = getClusterStorageResources(state.currentCluster);
+            let resource = null;
+            if (kind === 'StorageClass') {
+                resource = clusterResources.storageClasses.find(sc => sc.name === name);
+            } else if (kind === 'VolumeSnapshotClass') {
+                resource = clusterResources.volumeSnapshotClasses.find(vsc => vsc.name === name);
+            }
+
+            if (!resource || !resource.yaml) {
+                alert('Could not find YAML for this resource');
+                return;
+            }
+
+            const clusterLabel = state.currentCluster || 'cluster';
+            window.showYamlModal(`${kind}: ${name} (${clusterLabel})`, resource.yaml);
+        };
+
         // Show YAML modal
         window.showDRPolicyYAML = function(clusterName, policyName) {
             const yaml = extractDRPolicyYAML(clusterName, policyName);
@@ -9019,14 +9177,8 @@ ${escapeHtml(trimmedYAML)}
                 alert('Could not find YAML for this DRPolicy');
                 return;
             }
-            
-            const modal = document.getElementById('yamlModal');
-            const title = document.getElementById('yamlModalTitle');
-            const content = document.getElementById('yamlModalContent');
-            
-            title.textContent = `DRPolicy: ${policyName} (${clusterName})`;
-            content.textContent = yaml;
-            modal.classList.add('active');
+
+            showYamlModal(`DRPolicy: ${policyName} (${clusterName})`, yaml);
         };
 
         // Close YAML modal
@@ -9041,6 +9193,11 @@ ${escapeHtml(trimmedYAML)}
             if (modal) {
                 modal.addEventListener('click', function(event) {
                     if (event.target === modal) {
+                        closeYamlModal();
+                    }
+                });
+                document.addEventListener('keydown', function(event) {
+                    if (event.key === 'Escape' && modal.classList.contains('active')) {
                         closeYamlModal();
                     }
                 });
