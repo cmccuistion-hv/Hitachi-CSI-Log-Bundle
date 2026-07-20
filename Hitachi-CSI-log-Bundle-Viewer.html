@@ -1553,6 +1553,234 @@
             margin-left: 10px;
             font-weight: normal;
         }
+
+        .timeline-btn {
+            padding: 3px 8px;
+            font-size: 10px;
+            white-space: nowrap;
+        }
+
+        /* Detected known-issue cards (Health & Diagnostics tab) */
+        .issue-card {
+            background: #2d2d30;
+            border-radius: 8px;
+            padding: 14px 16px;
+            margin: 10px 0;
+            border-left: 4px solid var(--accent-blue);
+        }
+
+        .issue-card.severity-critical { border-left-color: #dc3545; }
+        .issue-card.severity-warning { border-left-color: #ffc107; }
+        .issue-card.severity-info { border-left-color: #007bff; }
+
+        .issue-card-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 6px;
+        }
+
+        .issue-card-title {
+            font-weight: 600;
+            font-size: 14px;
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .issue-severity-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .issue-severity-badge.severity-critical { background: #dc3545; color: white; }
+        .issue-severity-badge.severity-warning { background: #ffc107; color: #1e1e1e; }
+        .issue-severity-badge.severity-info { background: #007bff; color: white; }
+
+        .issue-card-meta {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin: 4px 0;
+        }
+
+        .issue-card-body {
+            font-size: 12px;
+            margin: 6px 0;
+            line-height: 1.5;
+        }
+
+        .issue-card-remediation {
+            font-size: 12px;
+            margin: 6px 0;
+            padding: 8px 10px;
+            background: rgba(58, 150, 221, 0.08);
+            border-radius: 4px;
+            line-height: 1.5;
+        }
+
+        .issue-card-note {
+            font-size: 12px;
+            margin: 6px 0;
+            padding: 8px 10px;
+            background: rgba(255, 193, 7, 0.1);
+            border-radius: 4px;
+            line-height: 1.5;
+        }
+
+        /* Log density timeline strip (Logs tab) */
+        .timeline-strip-container {
+            position: relative;
+            padding: 6px 10px 4px 10px;
+            background: var(--bg-secondary, #252526);
+            border-bottom: 1px solid var(--border-color, #3e3e42);
+            user-select: none;
+            transition: box-shadow 0.25s ease, border-color 0.25s ease, background 0.25s ease;
+        }
+
+        .timeline-strip-container.timeline-intro-active {
+            z-index: 5;
+            background: linear-gradient(180deg, rgba(58, 150, 221, 0.18) 0%, rgba(37, 37, 38, 0.95) 55%);
+            border: 2px solid rgba(58, 150, 221, 0.85);
+            border-radius: 6px;
+            margin: 2px 4px 6px 4px;
+            box-shadow: 0 0 0 3px rgba(58, 150, 221, 0.25), 0 8px 28px rgba(0, 0, 0, 0.45);
+            animation: timelineIntroPulse 1.2s ease-in-out infinite;
+        }
+
+        @keyframes timelineIntroPulse {
+            0%, 100% {
+                box-shadow: 0 0 0 3px rgba(58, 150, 221, 0.2), 0 8px 24px rgba(0, 0, 0, 0.4);
+                border-color: rgba(58, 150, 221, 0.7);
+            }
+            50% {
+                box-shadow: 0 0 0 6px rgba(58, 150, 221, 0.4), 0 10px 32px rgba(58, 150, 221, 0.25);
+                border-color: rgba(100, 180, 255, 1);
+            }
+        }
+
+        .timeline-strip-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
+            min-height: 18px;
+        }
+
+        .timeline-strip-title {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text-primary);
+            letter-spacing: 0.02em;
+        }
+
+        .timeline-strip-container.timeline-intro-active .timeline-strip-title {
+            color: #8ec8f0;
+        }
+
+        .timeline-strip-intro {
+            display: none;
+            align-items: flex-start;
+            gap: 10px;
+            width: 100%;
+            margin: 0 0 8px 0;
+            font-size: 13px;
+            color: var(--text-primary);
+            background: rgba(15, 40, 60, 0.95);
+            border: 1px solid rgba(58, 150, 221, 0.55);
+            border-radius: 6px;
+            padding: 10px 12px;
+            line-height: 1.45;
+            box-shadow: inset 0 0 0 1px rgba(58, 150, 221, 0.15);
+        }
+
+        .timeline-strip-intro.visible {
+            display: flex;
+        }
+
+        .timeline-strip-intro .intro-text {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .timeline-strip-intro .intro-text strong {
+            color: #9ad0f5;
+        }
+
+        .timeline-strip-intro .intro-new {
+            flex-shrink: 0;
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            background: #3a96dd;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            margin-top: 1px;
+            animation: timelineNewBadge 1.2s ease-in-out infinite;
+        }
+
+        @keyframes timelineNewBadge {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.08); }
+        }
+
+        .timeline-strip-intro .intro-dismiss {
+            flex-shrink: 0;
+            background: #3a96dd;
+            border: none;
+            color: white;
+            border-radius: 4px;
+            padding: 6px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .timeline-strip-intro .intro-dismiss:hover {
+            background: #4aa6ed;
+        }
+
+        .timeline-strip-container canvas {
+            display: block;
+            width: 100%;
+            height: 48px;
+            cursor: crosshair;
+            transition: height 0.25s ease;
+        }
+
+        .timeline-strip-container.timeline-intro-active canvas {
+            height: 64px;
+        }
+
+        .timeline-tooltip {
+            position: absolute;
+            display: none;
+            background: #1e1e1e;
+            border: 1px solid #3e3e42;
+            border-radius: 4px;
+            padding: 6px 8px;
+            font-size: 11px;
+            line-height: 1.5;
+            pointer-events: none;
+            white-space: nowrap;
+            z-index: 100;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+        }
+
+        .timeline-strip-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            color: var(--text-secondary);
+            padding: 1px 0 2px 0;
+        }
     </style>
 </head>
 <body>
@@ -1741,6 +1969,27 @@
                         <button class="btn" id="exportBtn">💾 Export</button>
                     </div>
 
+                    <!-- Log density timeline strip: click or drag to set the time filter -->
+                    <div class="timeline-strip-container" id="timelineStrip" style="display: none;" title="Log density over time — click or drag to filter by time range">
+                        <div class="timeline-strip-intro" id="timelineStripIntro" role="status">
+                            <span class="intro-new">New</span>
+                            <span class="intro-text">
+                                <strong>Activity timeline</strong> — gray bars show log volume; red/amber mark error and warning bursts.
+                                <strong>Click or drag</strong> a region to jump straight to that incident window.
+                            </span>
+                            <button type="button" class="intro-dismiss" id="timelineIntroDismiss" title="Dismiss this tip">Got it</button>
+                        </div>
+                        <div class="timeline-strip-header">
+                            <span class="timeline-strip-title">🕒 Activity timeline</span>
+                        </div>
+                        <canvas id="timelineCanvas"></canvas>
+                        <div class="timeline-strip-labels">
+                            <span id="timelineLabelStart"></span>
+                            <span id="timelineLabelEnd"></span>
+                        </div>
+                        <div class="timeline-tooltip" id="timelineTooltip"></div>
+                    </div>
+
                     <div class="log-content" id="logContent">
                         <div class="empty-state">
                             <div class="empty-state-icon">📝</div>
@@ -1862,7 +2111,7 @@
     <script>
 
         // Version Configuration
-        const VERSION = '1.7.1';
+        const VERSION = '1.8.0';
         const GITHUB_REPO = 'cmccuistion-hv/Hitachi-CSI-Log-Bundle';
         const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`;
         const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
@@ -1880,6 +2129,7 @@
             searchTerm: '',
             volumeSearchTerm: '',
             categoryFilter: null,  // Filter by error category
+            volumeFilter: null,    // { label, volumeId, terms: [lowercase substrings] } - cross-file volume/issue timeline filter
             wordWrap: true,  // Toggle word wrap mode
             disabledContainers: new Set(),  // Containers disabled when viewing "all" (empty Set = all enabled)
             timeFilter: {
@@ -1961,7 +2211,10 @@
             },
             volumeOperations: [],    // { timestamp, operation, volumeId, pod, status, message }
             connectivity: {},        // node-name -> { arrays: [], paths: {total, active, failed}, volumes: [] }
-            aiChatHistory: []        // { role: 'user'|'assistant', content: string } for follow-up chat
+            aiChatHistory: [],       // { role: 'user'|'assistant', content: string } for follow-up chat
+            detectedIssues: [],      // Known-issue signature matches: { id, title, severity, count, pods, nodes, firstSeen, lastSeen, ... }
+            timeline: null,          // Density histogram: { total, warn, err (Uint32Array), minTime, maxTime, bucketMs, bucketCount }
+            timelineOverlay: null    // Blue band histogram for volume/category/search (ignores time filter): Uint32Array | null
         };
 
         // DOM Elements
@@ -2057,6 +2310,7 @@
             setupFilters();
             setupSearch();
             setupTimeFilter();
+            setupTimelineStrip();
             setupNavigation();
             setupExport();
             setupWordWrap();
@@ -2398,6 +2652,7 @@
             state.inferredYear = null;  // Reset year inference for new bundle
             state.volumeSearchTerm = '';
             state.disabledContainers = new Set();  // Reset disabled containers for new bundle
+            timelineIntroShownThisLoad = false;
             state.timeFilter = {
                 enabled: false,
                 startDate: null,
@@ -2558,6 +2813,10 @@
                         return a.timestampDate - b.timestampDate;
                     });
                 }
+                
+                // Evaluate known-issue signatures and build the density timeline histogram
+                try { evaluateKnownIssues(); } catch (e) { console.error('Known-issue evaluation failed:', e); }
+                try { computeTimelineHistogram(); } catch (e) { console.error('Timeline histogram failed:', e); }
                 
                 // Set initial cluster view - default to first available cluster
                 if (state.clusters.length > 1 || (state.clusters.length === 1 && state.clusters[0] !== 'default')) {
@@ -3744,6 +4003,553 @@
             }
         }
 
+        // ============================================================
+        // Known-Issue Signatures (rules engine)
+        // ============================================================
+        // Declarative signature rules evaluated once after parsing. Each rule:
+        //   id, title, severity ('critical'|'warning'|'info')
+        //   match: { any: [literal substrings, OR-matched], level: optional level restriction, minCount: optional }
+        //   corroborate: optional fn(state, issue) -> string note | null | false (false suppresses the issue)
+        //   nodeConcentrationNote: if true and all matches resolve to a single node, add a node-local hint
+        //   explanation / remediation: shown on the issue card; kbUrl optional
+        const KNOWN_ISSUES = [
+            {
+                id: 'scsi-command-failures',
+                title: 'SCSI command failures on the data path',
+                severity: 'critical',
+                match: { any: ['HSPC0x00009002'], level: 'ERROR' },
+                nodeConcentrationNote: true,
+                explanation: 'The driver received failures while issuing SCSI commands to attached LDEVs (HSPC0x00009002). This usually indicates data-path problems between the node and the storage array: FC zoning, HBA issues, iSCSI session drops, or multipath misconfiguration.',
+                remediation: 'Check SAN zoning and HBA/iSCSI connectivity for the affected node(s), verify "multipath -ll" shows all expected paths active, and review array port status for the ports mapped to the failing LDEVs.'
+            },
+            {
+                id: 'multipath-config-issues',
+                title: 'Multipath configuration or device detection issues',
+                severity: 'critical',
+                match: { any: ['HSPC0x0000d001'] },
+                nodeConcentrationNote: true,
+                corroborate: function(state) {
+                    let hasMultipathData = false;
+                    if (state.multipath && typeof state.multipath === 'object') {
+                        for (const nodes of Object.values(state.multipath)) {
+                            if (nodes && Object.keys(nodes).length > 0) { hasMultipathData = true; break; }
+                        }
+                    }
+                    if (!hasMultipathData) {
+                        return 'No multipath output was found in the bundle — multipathd may not be installed or configured on the nodes, or the collector could not reach them. That is consistent with this error.';
+                    }
+                    return null;
+                },
+                explanation: 'The driver reported multipath problems (HSPC0x0000d001) — the multipath device for a volume could not be found or configured.',
+                remediation: 'Verify multipathd is installed, enabled, and running on the affected node(s), that /etc/multipath.conf includes the Hitachi device section, and compare "multipath -ll" output (Cluster Info / Health tab) against the expected paths.'
+            },
+            {
+                id: 'device-detection-timeouts',
+                title: 'Device detection timeouts or filesystem errors',
+                severity: 'critical',
+                match: { any: ['HSPC0x0000c008', 'HSPC0x0000900a'] },
+                nodeConcentrationNote: true,
+                explanation: 'The node plugin timed out waiting for a newly-attached device to appear, or hit filesystem errors on it (HSPC0x0000c008 / HSPC0x0000900a). Common causes are slow or missing SCSI rescans, zoning/LUN-mapping gaps, or a stale device state on the node.',
+                remediation: 'Check that the LDEV is mapped to the correct host group / iSCSI target for the node, rescan SCSI hosts on the node, and review multipath and kernel logs (dmesg) for the affected node around the failure time.'
+            },
+            {
+                id: 'permission-auth-errors',
+                title: 'Storage permission or authentication failures',
+                severity: 'critical',
+                match: { any: ['HSPC0x00001007', 'HSPC0x00001025', 'HSPC0x00001001'] },
+                explanation: 'The driver was denied access by the storage system (HSPC0x00001007 / 0x00001025 / 0x00001001) — invalid credentials, insufficient role, or a resource group that does not include the required resources.',
+                remediation: 'Verify the secret referenced by the StorageClass (user/password and management IP), confirm the storage user has the required role, and check that the resource group assigned to the user contains the pools, ports, and host groups HSPC needs.'
+            },
+            {
+                id: 'configuration-errors',
+                title: 'Configuration errors: secrets, parameters, or invalid volume IDs',
+                severity: 'warning',
+                match: { any: ['HSPC0x0000c03b', 'HSPC0x0000c002', 'HSPC0x0000101e'] },
+                explanation: 'The driver rejected requests due to configuration problems (HSPC0x0000c03b / 0x0000c002 / 0x0000101e): malformed secrets, invalid StorageClass parameters, or volume IDs that reference missing resources.',
+                remediation: 'Review the StorageClass parameters and secret contents against the HSPC documentation, and check whether referenced LDEVs/pools still exist on the array (a volume deleted array-side produces invalid volume ID errors).'
+            },
+            {
+                id: 'snapshot-failures',
+                title: 'Snapshot create/delete failures',
+                severity: 'warning',
+                match: { any: ['HSPC0x0000c037', 'HSPC0x0000b00a'] },
+                corroborate: function(state) {
+                    const vsc = (state.config && state.config.volumeSnapshotClasses) || [];
+                    if (vsc.length === 0) {
+                        return 'No VolumeSnapshotClass was found in this bundle — verify a Hitachi VolumeSnapshotClass exists and the external-snapshotter CRDs/controller are installed.';
+                    }
+                    return null;
+                },
+                explanation: 'Snapshot operations failed (HSPC0x0000c037 / 0x0000b00a). This covers Thin Image pair creation failures, copy group problems, and VolumeSnapshotClass configuration issues.',
+                remediation: 'Check the VolumeSnapshotClass parameters (pool ID, secret), confirm the Thin Image/snapshot license and pool capacity on the array, and review copy group state for the affected volumes.'
+            },
+            {
+                id: 'unsupported-operation',
+                title: 'Unsupported feature or operation requested',
+                severity: 'warning',
+                match: { any: ['code = Unimplemented'] },
+                explanation: 'A CSI call was rejected with gRPC "Unimplemented" — the requested capability (e.g. a snapshot or expansion mode) is not supported by this HSPC version or configuration.',
+                remediation: 'Compare the requested feature against the supported-features matrix for your HSPC version, and check for sidecar/driver version mismatches (an older driver with newer sidecars can produce Unimplemented errors).'
+            },
+            {
+                id: 'replication-rest-failures',
+                title: 'Replication REST API failures (KART40041-E)',
+                severity: 'critical',
+                match: { any: ['KART40041-E'] },
+                explanation: 'The storage REST API rejected replication operations with KART40041-E. This typically affects remote-mirror copy pair or copy group operations used by DR/replication.',
+                remediation: 'Check remote path status between the arrays, verify the copy group and journal configuration on both sites, and review the DR Policies tab for replication pair state. The array REST API error detail in the matching lines identifies the failing job.'
+            },
+            {
+                id: 'storage-feature-errors',
+                title: 'Storage feature incompatibility',
+                severity: 'warning',
+                match: { any: ['HSPC0x00001022'] },
+                explanation: 'The array rejected an operation as incompatible with the current storage configuration (HSPC0x00001022, often accompanied by an SSB code identifying the exact condition).',
+                remediation: 'Locate the SSB code in the matching log lines and look it up in the Hitachi maintenance documentation — it pinpoints the array-side condition (license, pool type, emulation, etc.) blocking the operation.'
+            },
+            {
+                id: 'rest-api-job-failures',
+                title: 'Storage REST API job failures (HTTP 4xx/5xx)',
+                severity: 'warning',
+                match: { any: ['extractHTTPStatusCodeError', 'HTTP status returned : 40', 'HTTP status returned : 50'], minCount: 3 },
+                explanation: 'Multiple REST API calls to the storage system failed with HTTP 4xx/5xx responses. Scattered failures can be transient, but repeated ones point to management-path or array-side problems.',
+                remediation: 'Check connectivity from the cluster to the array management endpoint (SVP/GUM/REST server), the REST API service status on the array, and whether failures correlate with specific operations or time windows (see the timeline strip).'
+            }
+        ];
+
+        // Evaluate KNOWN_ISSUES against parsed logs. Called once after the bundle is
+        // fully parsed and state.allLogs is sorted. Populates state.detectedIssues.
+        function evaluateKnownIssues() {
+            state.detectedIssues = [];
+            if (!Array.isArray(state.allLogs) || state.allLogs.length === 0) return;
+
+            const evidence = KNOWN_ISSUES.map(() => ({
+                count: 0, pods: new Set(), first: null, last: null, sample: null
+            }));
+
+            for (let i = 0; i < state.allLogs.length; i++) {
+                const log = state.allLogs[i];
+                // Only error lines and categorized INFO lines (e.g. REST/replication failures)
+                // can match signatures; skipping the rest keeps this pass cheap.
+                if (log.level !== 'ERROR' && !log.category) continue;
+                const raw = log.raw;
+
+                for (let r = 0; r < KNOWN_ISSUES.length; r++) {
+                    const rule = KNOWN_ISSUES[r];
+                    if (rule.match.level && log.level !== rule.match.level) continue;
+
+                    const subs = rule.match.any;
+                    let hit = false;
+                    for (let s = 0; s < subs.length; s++) {
+                        if (raw.indexOf(subs[s]) !== -1) { hit = true; break; }
+                    }
+                    if (!hit) continue;
+
+                    const ev = evidence[r];
+                    ev.count++;
+                    ev.pods.add(log.source);
+                    if (log.timestampDate) {
+                        if (!ev.first || log.timestampDate < ev.first) ev.first = log.timestampDate;
+                        if (!ev.last || log.timestampDate > ev.last) ev.last = log.timestampDate;
+                    }
+                    if (!ev.sample) ev.sample = raw.length > 300 ? raw.substring(0, 300) + '…' : raw;
+                }
+            }
+
+            const results = [];
+            for (let r = 0; r < KNOWN_ISSUES.length; r++) {
+                const rule = KNOWN_ISSUES[r];
+                const ev = evidence[r];
+                if (ev.count < (rule.match.minCount || 1)) continue;
+
+                const issue = {
+                    id: rule.id,
+                    title: rule.title,
+                    severity: rule.severity,
+                    explanation: rule.explanation,
+                    remediation: rule.remediation,
+                    kbUrl: rule.kbUrl || null,
+                    count: ev.count,
+                    pods: Array.from(ev.pods).sort(),
+                    nodes: [],
+                    firstSeen: ev.first,
+                    lastSeen: ev.last,
+                    sample: ev.sample,
+                    matchTerms: rule.match.any.map(s => s.toLowerCase()),
+                    notes: []
+                };
+
+                // Resolve affected Kubernetes nodes from pod metadata (cluster-context)
+                const nodes = new Set();
+                for (const pod of issue.pods) {
+                    const node = getNodeNameForPod(pod);
+                    if (node) nodes.add(node);
+                }
+                issue.nodes = Array.from(nodes).sort();
+
+                if (typeof rule.corroborate === 'function') {
+                    try {
+                        const note = rule.corroborate(state, issue);
+                        if (note === false) continue;
+                        if (typeof note === 'string' && note) issue.notes.push(note);
+                    } catch (e) {
+                        console.warn(`Known-issue corroborate failed for ${rule.id}:`, e);
+                    }
+                }
+
+                if (rule.nodeConcentrationNote && issue.nodes.length === 1) {
+                    issue.notes.push(`All occurrences resolve to node ${issue.nodes[0]} — likely a node-local problem (path/HBA/zoning) rather than an array-wide one.`);
+                }
+
+                results.push(issue);
+            }
+
+            const sevRank = { critical: 0, warning: 1, info: 2 };
+            results.sort((a, b) =>
+                ((sevRank[a.severity] ?? 3) - (sevRank[b.severity] ?? 3)) || (b.count - a.count)
+            );
+            state.detectedIssues = results;
+        }
+
+        // ============================================================
+        // Log Density Timeline Strip
+        // ============================================================
+
+        // Build the time-bucket histogram from state.allLogs. Called once per bundle load.
+        function computeTimelineHistogram() {
+            state.timeline = null;
+            state.timelineOverlay = null;
+            const logs = state.allLogs;
+            if (!Array.isArray(logs) || logs.length === 0) return;
+
+            let minT = Infinity, maxT = -Infinity;
+            for (let i = 0; i < logs.length; i++) {
+                const d = logs[i].timestampDate;
+                if (!d) continue;
+                const t = d.getTime();
+                if (t < minT) minT = t;
+                if (t > maxT) maxT = t;
+            }
+            if (!isFinite(minT) || !isFinite(maxT) || maxT <= minT) return;
+
+            const bucketCount = 240;
+            const bucketMs = Math.max(1000, Math.ceil((maxT - minT + 1) / bucketCount));
+            const total = new Uint32Array(bucketCount);
+            const warn = new Uint32Array(bucketCount);
+            const err = new Uint32Array(bucketCount);
+
+            for (let i = 0; i < logs.length; i++) {
+                const log = logs[i];
+                const d = log.timestampDate;
+                if (!d) continue;
+                let idx = Math.floor((d.getTime() - minT) / bucketMs);
+                if (idx >= bucketCount) idx = bucketCount - 1;
+                total[idx]++;
+                if (log.level === 'ERROR') err[idx]++;
+                else if (log.level === 'WARNING') warn[idx]++;
+            }
+
+            state.timeline = { total, warn, err, minTime: minT, maxTime: maxT, bucketMs, bucketCount };
+        }
+
+        // Resolve the active time filter to an epoch-ms range (mirrors getFilteredLogs logic)
+        function getTimeFilterRangeMs() {
+            if (!state.timeFilter.enabled || (!state.timeFilter.startDate && !state.timeFilter.endDate)) return null;
+            let start = null, end = null;
+            if (state.timeFilter.startDate) {
+                const [sy, sm, sd] = state.timeFilter.startDate.split('-').map(Number);
+                const d = new Date(sy, sm - 1, sd);
+                if (state.timeFilter.startTime) {
+                    const [hours, minutes] = state.timeFilter.startTime.split(':');
+                    d.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0, 0);
+                } else {
+                    d.setHours(0, 0, 0, 0);
+                }
+                start = d.getTime();
+            }
+            if (state.timeFilter.endDate) {
+                const [ey, em, ed] = state.timeFilter.endDate.split('-').map(Number);
+                const d = new Date(ey, em - 1, ed);
+                if (state.timeFilter.endTime) {
+                    const [hours, minutes] = state.timeFilter.endTime.split(':');
+                    d.setHours(parseInt(hours, 10), parseInt(minutes, 10), 59, 999);
+                } else {
+                    d.setHours(23, 59, 59, 999);
+                }
+                end = d.getTime();
+            }
+            return { start, end };
+        }
+
+        // Transient drag selection on the strip: { startBucket, endBucket } or null
+        let timelineDrag = null;
+
+        // First-run tip for the activity timeline (dismissed once, remembered in localStorage)
+        const TIMELINE_INTRO_KEY = 'timelineStripIntroSeen';
+
+        function isTimelineIntroSeen() {
+            try { return localStorage.getItem(TIMELINE_INTRO_KEY) === '1'; } catch (e) { return false; }
+        }
+
+        function dismissTimelineIntro() {
+            try { localStorage.setItem(TIMELINE_INTRO_KEY, '1'); } catch (e) {}
+            const intro = document.getElementById('timelineStripIntro');
+            const container = document.getElementById('timelineStrip');
+            if (intro) intro.classList.remove('visible');
+            if (container) container.classList.remove('timeline-intro-active');
+            // Redraw at normal canvas height after the intro shrinks
+            requestAnimationFrame(renderTimelineStrip);
+        }
+
+        let timelineIntroShownThisLoad = false;
+
+        function maybeShowTimelineIntro() {
+            if (isTimelineIntroSeen()) return;
+            const intro = document.getElementById('timelineStripIntro');
+            const container = document.getElementById('timelineStrip');
+            if (!intro || !container || container.style.display === 'none') return;
+
+            intro.classList.add('visible');
+            container.classList.add('timeline-intro-active');
+
+            // First time this bundle load: force Logs tab into view and scroll to the strip
+            if (!timelineIntroShownThisLoad) {
+                timelineIntroShownThisLoad = true;
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                const logsTab = document.querySelector('[data-tab="logs"]');
+                const logsContent = document.querySelector('[data-content="logs"]');
+                if (logsTab) logsTab.classList.add('active');
+                if (logsContent) logsContent.classList.add('active');
+                requestAnimationFrame(() => {
+                    container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                });
+            }
+        }
+
+        function renderTimelineStrip() {
+            const container = document.getElementById('timelineStrip');
+            const canvas = document.getElementById('timelineCanvas');
+            if (!container || !canvas) return;
+
+            const tl = state.timeline;
+            if (!tl || !tl.total) {
+                container.style.display = 'none';
+                return;
+            }
+            container.style.display = 'block';
+            maybeShowTimelineIntro();
+
+            const pad = (n) => String(n).padStart(2, '0');
+            const fmtLabel = (t) => {
+                const d = new Date(t);
+                return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+            };
+            const labelStart = document.getElementById('timelineLabelStart');
+            const labelEnd = document.getElementById('timelineLabelEnd');
+            if (labelStart) labelStart.textContent = fmtLabel(tl.minTime);
+            if (labelEnd) labelEnd.textContent = fmtLabel(tl.maxTime);
+
+            const dpr = window.devicePixelRatio || 1;
+            const cssWidth = canvas.clientWidth || (container.clientWidth - 20) || 600;
+            const introActive = container.classList.contains('timeline-intro-active');
+            const cssHeight = introActive ? 64 : 48;
+            canvas.width = Math.max(1, Math.round(cssWidth * dpr));
+            canvas.height = Math.round(cssHeight * dpr);
+            const ctx = canvas.getContext('2d');
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.clearRect(0, 0, cssWidth, cssHeight);
+
+            const n = tl.bucketCount;
+            const barW = cssWidth / n;
+            let maxCount = 1;
+            for (let i = 0; i < n; i++) if (tl.total[i] > maxCount) maxCount = tl.total[i];
+
+            const mainH = cssHeight - 8; // reserve bottom band for the filtered-subset overlay
+            const barHeight = (count) => Math.max(1, mainH * Math.sqrt(count / maxCount));
+
+            // Total volume (gray)
+            ctx.fillStyle = 'rgba(150, 150, 150, 0.35)';
+            for (let i = 0; i < n; i++) {
+                if (!tl.total[i]) continue;
+                const h = barHeight(tl.total[i]);
+                ctx.fillRect(i * barW, mainH - h, Math.max(1, barW - 0.5), h);
+            }
+            // Warnings (amber)
+            ctx.fillStyle = 'rgba(255, 193, 7, 0.85)';
+            for (let i = 0; i < n; i++) {
+                if (!tl.warn[i]) continue;
+                const h = barHeight(tl.warn[i]);
+                ctx.fillRect(i * barW, mainH - h, Math.max(1, barW - 0.5), h);
+            }
+            // Errors (red) on top
+            ctx.fillStyle = 'rgba(220, 53, 69, 0.95)';
+            for (let i = 0; i < n; i++) {
+                if (!tl.err[i]) continue;
+                const h = barHeight(tl.err[i]);
+                ctx.fillRect(i * barW, mainH - h, Math.max(1, barW - 0.5), h);
+            }
+
+            // Filtered-subset overlay (blue band): full volume/category/search distribution
+            // across the whole timeline — intentionally ignores the active time filter so
+            // focusing a period does not wipe the blue highlights outside the selection.
+            if (state.timelineOverlay) {
+                const fCounts = state.timelineOverlay;
+                ctx.fillStyle = 'rgba(58, 150, 221, 0.95)';
+                for (let i = 0; i < n; i++) {
+                    if (!fCounts[i]) continue;
+                    ctx.fillRect(i * barW, mainH + 2, Math.max(1, barW - 0.5), 5);
+                }
+            }
+
+            // Selection overlay: transient drag takes precedence over the applied time filter
+            let selStart = null, selEnd = null;
+            if (timelineDrag) {
+                selStart = tl.minTime + Math.min(timelineDrag.startBucket, timelineDrag.endBucket) * tl.bucketMs;
+                selEnd = tl.minTime + (Math.max(timelineDrag.startBucket, timelineDrag.endBucket) + 1) * tl.bucketMs;
+            } else {
+                const range = getTimeFilterRangeMs();
+                if (range) {
+                    selStart = range.start !== null ? range.start : tl.minTime;
+                    selEnd = range.end !== null ? range.end : tl.maxTime;
+                }
+            }
+            if (selStart !== null && selEnd !== null && selEnd > selStart) {
+                const span = tl.maxTime - tl.minTime + 1;
+                const x1 = Math.max(0, ((selStart - tl.minTime) / span) * cssWidth);
+                const x2 = Math.min(cssWidth, ((selEnd - tl.minTime) / span) * cssWidth);
+                if (x2 > x1) {
+                    ctx.fillStyle = 'rgba(58, 150, 221, 0.18)';
+                    ctx.fillRect(x1, 0, Math.max(2, x2 - x1), cssHeight);
+                    ctx.strokeStyle = 'rgba(58, 150, 221, 0.8)';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(x1 + 0.5, 0.5, Math.max(2, x2 - x1) - 1, cssHeight - 1);
+                }
+            }
+        }
+
+        // Apply a strip selection to the existing time-filter inputs, then trigger
+        // the normal time-filter change handler so filtering/rendering stay unified.
+        function applyTimelineSelection(startMs, endMs) {
+            const startDateInput = document.getElementById('timeFilterStartDate');
+            const startTimeInput = document.getElementById('timeFilterStartTime');
+            const endDateInput = document.getElementById('timeFilterEndDate');
+            const endTimeInput = document.getElementById('timeFilterEndTime');
+            if (!startDateInput || !endDateInput) return;
+
+            const pad = (n) => String(n).padStart(2, '0');
+            const fmtDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+            const fmtHm = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+            const s = new Date(startMs);
+            const e = new Date(endMs);
+            startDateInput.value = fmtDate(s);
+            if (startTimeInput) startTimeInput.value = fmtHm(s);
+            endDateInput.value = fmtDate(e);
+            if (endTimeInput) endTimeInput.value = fmtHm(e);
+
+            startDateInput.dispatchEvent(new Event('change'));
+        }
+
+        // Wire up mouse interaction on the strip: hover tooltip, click / drag-to-select
+        function setupTimelineStrip() {
+            const container = document.getElementById('timelineStrip');
+            const canvas = document.getElementById('timelineCanvas');
+            const tooltip = document.getElementById('timelineTooltip');
+            if (!container || !canvas || !tooltip) return;
+
+            const pad = (n) => String(n).padStart(2, '0');
+            const fmtTime = (t) => {
+                const d = new Date(t);
+                return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+            };
+
+            function bucketAt(e) {
+                const tl = state.timeline;
+                if (!tl) return null;
+                const rect = canvas.getBoundingClientRect();
+                if (rect.width <= 0) return null;
+                let idx = Math.floor(((e.clientX - rect.left) / rect.width) * tl.bucketCount);
+                if (idx < 0) idx = 0;
+                if (idx >= tl.bucketCount) idx = tl.bucketCount - 1;
+                return idx;
+            }
+
+            canvas.addEventListener('mousemove', (e) => {
+                const tl = state.timeline;
+                if (!tl) return;
+                const idx = bucketAt(e);
+                if (idx === null) return;
+
+                if (timelineDrag) {
+                    timelineDrag.endBucket = idx;
+                    renderTimelineStrip();
+                }
+
+                const bStart = tl.minTime + idx * tl.bucketMs;
+                const bEnd = Math.min(tl.maxTime, bStart + tl.bucketMs);
+                tooltip.style.display = 'block';
+                tooltip.innerHTML = `
+                    <strong>${fmtTime(bStart)} – ${fmtTime(bEnd)}</strong><br>
+                    ${tl.total[idx].toLocaleString()} lines &nbsp;
+                    <span style="color: #dc3545;">${tl.err[idx].toLocaleString()} errors</span> &nbsp;
+                    <span style="color: #ffc107;">${tl.warn[idx].toLocaleString()} warnings</span><br>
+                    <em style="color: var(--text-secondary);">${timelineDrag ? 'Release to filter this range' : 'Click or drag to filter by time'}</em>
+                `;
+                const containerRect = container.getBoundingClientRect();
+                let left = e.clientX - containerRect.left + 12;
+                tooltip.style.left = left + 'px';
+                tooltip.style.top = '2px';
+                const tw = tooltip.offsetWidth;
+                if (left + tw > containerRect.width - 4) {
+                    tooltip.style.left = Math.max(4, e.clientX - containerRect.left - tw - 12) + 'px';
+                }
+            });
+
+            canvas.addEventListener('mouseleave', () => {
+                tooltip.style.display = 'none';
+            });
+
+            canvas.addEventListener('mousedown', (e) => {
+                if (!state.timeline) return;
+                e.preventDefault();
+                dismissTimelineIntro();
+                const idx = bucketAt(e);
+                if (idx === null) return;
+                timelineDrag = { startBucket: idx, endBucket: idx };
+                renderTimelineStrip();
+            });
+
+            const dismissBtn = document.getElementById('timelineIntroDismiss');
+            if (dismissBtn) {
+                dismissBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    dismissTimelineIntro();
+                });
+            }
+
+            window.addEventListener('mouseup', () => {
+                if (!timelineDrag || !state.timeline) {
+                    timelineDrag = null;
+                    return;
+                }
+                const tl = state.timeline;
+                const a = Math.min(timelineDrag.startBucket, timelineDrag.endBucket);
+                const b = Math.max(timelineDrag.startBucket, timelineDrag.endBucket);
+                timelineDrag = null;
+                const startMs = tl.minTime + a * tl.bucketMs;
+                const endMs = Math.min(tl.maxTime, tl.minTime + (b + 1) * tl.bucketMs);
+                applyTimelineSelection(startMs, endMs);
+            });
+
+            // Redraw on window resize (debounced)
+            let resizeTimeout;
+            window.addEventListener('resize', () => {
+                clearTimeout(resizeTimeout);
+                resizeTimeout = setTimeout(renderTimelineStrip, 150);
+            });
+        }
+
         // Strip cluster prefix and container suffix from a log pod name for podHealth lookup.
         function getBasePodName(podName) {
             if (!podName) return podName;
@@ -4604,6 +5410,7 @@
         function updateUI() {
             updateStats();
             updatePodList();
+            renderTimelineStrip();
             renderHealthAndDiagnostics();
             renderClusterInfo();
             renderConfiguration();
@@ -5044,13 +5851,23 @@
 
             if (state.searchTerm) {
                 const term = state.searchTerm.toLowerCase();
-                filtered = filtered.filter(log => 
-                    log.raw.toLowerCase().includes(term)
-                );
+                filtered = filtered.filter(log => getSearchableLogText(log).indexOf(term) !== -1);
             }
 
             if (state.categoryFilter) {
                 filtered = filtered.filter(log => log.category === state.categoryFilter);
+            }
+
+            // Volume/issue timeline filter: keep lines matching ANY of the precomputed terms
+            if (state.volumeFilter && state.volumeFilter.terms && state.volumeFilter.terms.length > 0) {
+                const vfTerms = state.volumeFilter.terms;
+                filtered = filtered.filter(log => {
+                    const raw = log.raw.toLowerCase();
+                    for (let t = 0; t < vfTerms.length; t++) {
+                        if (raw.indexOf(vfTerms[t]) !== -1) return true;
+                    }
+                    return false;
+                });
             }
 
             // Apply time filter if enabled
@@ -5062,9 +5879,11 @@
                     let startDateTime = null;
                     let endDateTime = null;
                     
-                    // Build start date/time
+                    // Build start date/time (parse yyyy-mm-dd as a LOCAL date; new Date(string)
+                    // would parse it as UTC midnight and shift the day in negative-UTC timezones)
                     if (state.timeFilter.startDate) {
-                        startDateTime = new Date(state.timeFilter.startDate);
+                        const [sy, sm, sd] = state.timeFilter.startDate.split('-').map(Number);
+                        startDateTime = new Date(sy, sm - 1, sd);
                         if (state.timeFilter.startTime) {
                             const [hours, minutes] = state.timeFilter.startTime.split(':');
                             startDateTime.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0, 0);
@@ -5075,7 +5894,8 @@
                     
                     // Build end date/time
                     if (state.timeFilter.endDate) {
-                        endDateTime = new Date(state.timeFilter.endDate);
+                        const [ey, em, ed] = state.timeFilter.endDate.split('-').map(Number);
+                        endDateTime = new Date(ey, em - 1, ed);
                         if (state.timeFilter.endTime) {
                             const [hours, minutes] = state.timeFilter.endTime.split(':');
                             endDateTime.setHours(parseInt(hours, 10), parseInt(minutes, 10), 59, 999);
@@ -5389,6 +6209,9 @@
         async function renderLogs() {
             const filtered = getFilteredLogs();
 
+            // Keep the density strip in sync (selection + filtered overlay)
+            renderTimelineStrip();
+
             // Render empty state
             if (filtered.length === 0) {
                 logContent.innerHTML = `
@@ -5492,6 +6315,20 @@
             logContent.appendChild(container);
         }
 
+        // Deterministic distinct color per log source (pod/container) for timeline views
+        const sourceColorCache = {};
+        function getSourceColor(source) {
+            if (sourceColorCache[source]) return sourceColorCache[source];
+            let hash = 0;
+            for (let i = 0; i < source.length; i++) {
+                hash = ((hash << 5) - hash + source.charCodeAt(i)) | 0;
+            }
+            const hue = ((hash % 360) + 360) % 360;
+            const color = `hsl(${hue}, 65%, 68%)`;
+            sourceColorCache[source] = color;
+            return color;
+        }
+
         // Create a single log element (reusable)
         function createLogElement(log) {
             // Create wrapper for tooltip positioning
@@ -5511,13 +6348,7 @@
             
             div.className = className;
             
-            let line = escapeHtml(log.raw);
-            
-            // Highlight search term (only if searching)
-            if (state.searchTerm) {
-                const regex = new RegExp(`(${escapeRegex(state.searchTerm)})`, 'gi');
-                line = line.replace(regex, '<span class="highlight">$1</span>');
-            }
+            let line = highlightSearchInLogLine(log.raw, state.searchTerm);
 
             // Strip cluster prefix from source display (views are now separated by cluster)
             let displaySource = log.source;
@@ -5525,7 +6356,14 @@
                 displaySource = log.source.substring(state.currentCluster.length + 1);
             }
 
-            div.innerHTML = `<span class="source">[${displaySource}]</span>${line}`;
+            // In timeline (volume/issue filter) view, color each source distinctly so the
+            // provisioner/driver/node interleaving is visible at a glance
+            let sourceAttrs = '';
+            if (state.volumeFilter) {
+                sourceAttrs = ` style="color: ${getSourceColor(log.source)}; font-weight: 600;"`;
+            }
+
+            div.innerHTML = `<span class="source"${sourceAttrs}>[${displaySource}]</span>${line}`;
             
             // Add div to wrapper first (needed for insertBefore to work)
             wrapper.appendChild(div);
@@ -5600,7 +6438,7 @@
             
             // Add tooltip (only show when filters are active and NOT a context line)
             // Context lines get their controls at the edges instead
-            if ((state.filterLevel !== 'ALL' || state.categoryFilter) && !log._isContextLine) {
+            if ((state.filterLevel !== 'ALL' || state.categoryFilter || state.volumeFilter) && !log._isContextLine) {
                 const tooltip = document.createElement('div');
                 tooltip.className = 'log-line-tooltip';
                 
@@ -6313,6 +7151,7 @@
                                     <th>LUN Mappings (by Host)</th>
                                     <th>Nodes</th>
                                     <th>Status</th>
+                                    <th>Timeline</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -6355,6 +7194,7 @@
                             <td>${lunsHtml || '-'}</td>
                             <td style="font-size: 11px; text-align: center;">${nodeCount || '-'}</td>
                             <td>${statusBadges}</td>
+                            <td><button class="btn timeline-btn" data-vid="${escapeHtml(vol.volumeId)}" onclick="showVolumeTimeline(this.dataset.vid)" title="Show unified timeline for this volume across all pod logs">🕒 Timeline</button></td>
                         </tr>
                     `;
                 }
@@ -7266,6 +8106,7 @@
                                 <th>Volume ID</th>
                                 <th>Pod</th>
                                 <th>Status</th>
+                                <th>Timeline</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -7292,6 +8133,9 @@
                         <td style="font-size: 11px; font-family: monospace;">${op.volumeId}</td>
                         <td style="font-size: 11px;">${displayPod}</td>
                         <td>${statusBadge}</td>
+                        <td>${op.volumeId && op.volumeId !== 'N/A'
+                            ? `<button class="btn timeline-btn" data-vid="${escapeHtml(op.volumeId)}" onclick="showVolumeTimeline(this.dataset.vid)" title="Show unified timeline for this volume across all pod logs">🕒 Timeline</button>`
+                            : '<span style="color: var(--text-secondary);">-</span>'}</td>
                     </tr>
                 `;
             }
@@ -7305,8 +8149,76 @@
             return html;
         }
 
+        // Render detected known-issue cards (top of Health & Diagnostics tab)
+        function renderDetectedIssues() {
+            const issues = state.detectedIssues || [];
+            if (issues.length === 0) return '';
+
+            // Filter by current cluster: only show issues with at least one affected pod in it
+            const clusterPrefix = state.currentCluster ? state.currentCluster + '/' : null;
+            const visible = clusterPrefix
+                ? issues.filter(issue => issue.pods.some(pod => pod.startsWith(clusterPrefix)))
+                : issues;
+            if (visible.length === 0) return '';
+
+            const formatTime = (d) => {
+                if (!d) return '?';
+                const pad = (n) => String(n).padStart(2, '0');
+                return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+            };
+
+            let html = `
+                <div class="config-section">
+                    <h3>🚨 Detected Known Issues (${visible.length})</h3>
+            `;
+
+            for (const issue of visible) {
+                const displayPods = clusterPrefix
+                    ? issue.pods.filter(pod => pod.startsWith(clusterPrefix)).map(pod => pod.substring(clusterPrefix.length))
+                    : issue.pods;
+                const podsHtml = displayPods.slice(0, 6).map(p => escapeHtml(p)).join(', ')
+                    + (displayPods.length > 6 ? ` and ${displayPods.length - 6} more` : '');
+                const nodesHtml = issue.nodes.length > 0
+                    ? ` &nbsp;|&nbsp; Nodes: ${issue.nodes.map(n => escapeHtml(n)).join(', ')}`
+                    : '';
+                const timeRange = issue.firstSeen
+                    ? `${formatTime(issue.firstSeen)} → ${formatTime(issue.lastSeen)}`
+                    : 'timestamps unavailable';
+                const notesHtml = issue.notes.map(note =>
+                    `<div class="issue-card-note">💡 ${escapeHtml(note)}</div>`
+                ).join('');
+                const kbHtml = issue.kbUrl
+                    ? ` <a href="${escapeHtml(issue.kbUrl)}" target="_blank" rel="noopener" style="font-size: 11px;">KB article</a>`
+                    : '';
+
+                html += `
+                    <div class="issue-card severity-${issue.severity}">
+                        <div class="issue-card-header">
+                            <span class="issue-severity-badge severity-${issue.severity}">${issue.severity}</span>
+                            <span class="issue-card-title">${escapeHtml(issue.title)}</span>
+                            <button class="btn timeline-btn" onclick="viewIssueLogs('${escapeHtml(issue.id)}')" title="Show all log lines matching this issue signature">🔍 View matching logs</button>
+                        </div>
+                        <div class="issue-card-meta">
+                            ${issue.count.toLocaleString()} occurrence${issue.count !== 1 ? 's' : ''}
+                            &nbsp;|&nbsp; ${timeRange}
+                            &nbsp;|&nbsp; Pods: ${podsHtml}${nodesHtml}
+                        </div>
+                        <div class="issue-card-body">${escapeHtml(issue.explanation)}${kbHtml}</div>
+                        <div class="issue-card-remediation"><strong>Suggested next steps:</strong> ${escapeHtml(issue.remediation)}</div>
+                        ${notesHtml}
+                    </div>
+                `;
+            }
+
+            html += `</div>`;
+            return html;
+        }
+
         function renderHealthAndDiagnostics() {
             let html = '';
+            
+            // Detected known-issue cards first (highest signal)
+            html += renderDetectedIssues();
             
             // Render health summary if we have pod data
             if (Object.keys(state.podHealth).length > 0) {
@@ -7888,29 +8800,17 @@
             // Allow UI to update
             await new Promise(resolve => setTimeout(resolve, 50));
             
-            // Switch to Logs tab
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            
-            const logsTab = document.querySelector('[data-tab="logs"]');
-            const logsContent = document.querySelector('[data-content="logs"]');
-            logsTab.classList.add('active');
-            logsContent.classList.add('active');
-            
+            switchToLogsTab();
+            resetLogViewForJump();
+
             // Set category filter
             state.categoryFilter = category;
-            
-            // Set filter to show all levels (since we're filtering by category which includes the level)
-            state.filterLevel = 'ALL';
-            document.querySelectorAll('[data-level]').forEach(b => b.classList.remove('active'));
-            document.querySelector('[data-level="ALL"]').classList.add('active');
-            
-            // Clear search term
-            searchInput.value = '';
-            state.searchTerm = '';
+            state.volumeFilter = null;
+            rebuildTimelineOverlay();
             
             // Invalidate cache and re-render
             invalidateCache();
+            if (typeof updatePodList === 'function') updatePodList();
             await renderLogs();
             
             // Scroll to top of logs
@@ -7965,9 +8865,252 @@
         // Clear category filter
         window.clearCategoryFilter = function() {
             state.categoryFilter = null;
+            rebuildTimelineOverlay(); // may fall back to search overlay
             invalidateCache();
             renderLogs();
             updateCategoryFilterDisplay(null);
+        };
+
+        // Switch the main UI to the Logs tab (shared by timeline/issue jump flows)
+        function switchToLogsTab() {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            const logsTab = document.querySelector('[data-tab="logs"]');
+            const logsContent = document.querySelector('[data-content="logs"]');
+            if (logsTab) logsTab.classList.add('active');
+            if (logsContent) logsContent.classList.add('active');
+        }
+
+        // Clear time-filter inputs + state without re-rendering (callers re-render).
+        function clearTimeFilterState() {
+            const startDateInput = document.getElementById('timeFilterStartDate');
+            const startTimeInput = document.getElementById('timeFilterStartTime');
+            const endDateInput = document.getElementById('timeFilterEndDate');
+            const endTimeInput = document.getElementById('timeFilterEndTime');
+            if (startDateInput) startDateInput.value = '';
+            if (startTimeInput) startTimeInput.value = '';
+            if (endDateInput) endDateInput.value = '';
+            if (endTimeInput) endTimeInput.value = '';
+            state.timeFilter.enabled = false;
+            state.timeFilter.startDate = null;
+            state.timeFilter.endDate = null;
+            state.timeFilter.startTime = null;
+            state.timeFilter.endTime = null;
+        }
+
+        // Reset competing log filters when jumping to a volume/issue/category view so the
+        // target set is not empty because of a leftover time range, search, or pod selection.
+        function resetLogViewForJump() {
+            clearTimeFilterState();
+            state.filterLevel = 'ALL';
+            document.querySelectorAll('[data-level]').forEach(b => b.classList.remove('active'));
+            const allBtn = document.querySelector('[data-level="ALL"]');
+            if (allBtn) allBtn.classList.add('active');
+            if (searchInput) searchInput.value = '';
+            state.searchTerm = '';
+            state.currentPod = 'all';
+            state.expandedContexts.clear();
+        }
+
+        // Build the blue timeline-band histogram for the active volume/category/search filter
+        // from ALL matching logs (time filter ignored). Persists until that filter is cleared.
+        // Priority: volume filter > category filter > search term.
+        function rebuildTimelineOverlay() {
+            state.timelineOverlay = null;
+            const tl = state.timeline;
+            if (!tl || !tl.total) return;
+
+            const hasVolume = state.volumeFilter && state.volumeFilter.terms && state.volumeFilter.terms.length > 0;
+            const hasCategory = !!state.categoryFilter;
+            const searchTerm = (state.searchTerm || '').trim().toLowerCase();
+            const hasSearch = searchTerm.length > 0;
+            if (!hasVolume && !hasCategory && !hasSearch) return;
+
+            const n = tl.bucketCount;
+            const counts = new Uint32Array(n);
+            const logs = state.allLogs;
+            if (!Array.isArray(logs)) return;
+
+            if (hasVolume) {
+                const terms = state.volumeFilter.terms;
+                for (let i = 0; i < logs.length; i++) {
+                    const log = logs[i];
+                    if (!log.timestampDate) continue;
+                    const raw = log.raw.toLowerCase();
+                    let hit = false;
+                    for (let t = 0; t < terms.length; t++) {
+                        if (raw.indexOf(terms[t]) !== -1) { hit = true; break; }
+                    }
+                    if (!hit) continue;
+                    let idx = Math.floor((log.timestampDate.getTime() - tl.minTime) / tl.bucketMs);
+                    if (idx < 0) continue;
+                    if (idx >= n) idx = n - 1;
+                    counts[idx]++;
+                }
+            } else if (hasCategory) {
+                const cat = state.categoryFilter;
+                for (let i = 0; i < logs.length; i++) {
+                    const log = logs[i];
+                    if (log.category !== cat || !log.timestampDate) continue;
+                    let idx = Math.floor((log.timestampDate.getTime() - tl.minTime) / tl.bucketMs);
+                    if (idx < 0) continue;
+                    if (idx >= n) idx = n - 1;
+                    counts[idx]++;
+                }
+            } else {
+                // Search-only overlay (body text only — timestamps excluded, same as search box)
+                for (let i = 0; i < logs.length; i++) {
+                    const log = logs[i];
+                    if (!log.timestampDate) continue;
+                    if (getSearchableLogText(log).indexOf(searchTerm) === -1) continue;
+                    let idx = Math.floor((log.timestampDate.getTime() - tl.minTime) / tl.bucketMs);
+                    if (idx < 0) continue;
+                    if (idx >= n) idx = n - 1;
+                    counts[idx]++;
+                }
+            }
+
+            state.timelineOverlay = counts;
+        }
+
+        // Log body text for search matching. Strips the leading log header (timestamp /
+        // level prefix) and also strips date/time tokens anywhere in the line so queries
+        // like "17", "07/20", or "2026-05-24" don't flood-match clocks and embedded
+        // Kubernetes timestamps. Result is cached lowercase on the log object.
+        function getLogHeaderLength(raw) {
+            if (!raw) return 0;
+            // HSPC: 2026/07/17 17:16:48.621[00006][0001][ERROR] or [INFO ]
+            let m = raw.match(/^\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:\[\d+\]){0,2}\[(?:ERROR|WARNING|INFO)\s*\]/i);
+            if (m) return m[0].length;
+            // klog (optional [pod] prefix): I0720 18:18:46.217778       1 
+            m = raw.match(/^(?:\[[^\]]*\]\s*)?[IEW]\d{4}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?\s+\d+\s+/);
+            if (m) return m[0].length;
+            // Fallback: leading HSPC/klog timestamp only
+            m = raw.match(/^\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?/);
+            if (m) return m[0].length;
+            m = raw.match(/^(?:\[[^\]]*\]\s*)?[IEW]\d{4}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?\s*/);
+            if (m) return m[0].length;
+            return 0;
+        }
+
+        function getSearchableLogText(log) {
+            if (log._searchText != null) return log._searchText;
+            let text = (log.raw || '').substring(getLogHeaderLength(log.raw || ''));
+            // Strip date/time tokens elsewhere (PV dumps, RFC3339, wall-clock times, klog MMDD codes)
+            text = text.replace(/\b\d{4}\/\d{2}\/\d{2}(?:\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)?\b/g, ' ');
+            text = text.replace(/\b\d{4}-\d{2}-\d{2}(?:[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2}|[ ][+-]\d{4})?)?(?:\s+UTC)?\b/g, ' ');
+            text = text.replace(/\b\d{2}:\d{2}:\d{2}(?:\.\d+)?\b/g, ' ');
+            text = text.replace(/\b[IEW]\d{4}\b/g, ' ');
+            log._searchText = text.toLowerCase();
+            return log._searchText;
+        }
+
+        // Highlight search matches in the message body only (never in the leading timestamp/header).
+        function highlightSearchInLogLine(raw, searchTerm) {
+            const escaped = escapeHtml(raw || '');
+            if (!searchTerm) return escaped;
+            const headerLen = getLogHeaderLength(raw || '');
+            // headerLen is in raw-string chars; escapeHtml only expands & < > " '
+            // so map raw index -> escaped index by escaping the header separately.
+            const rawHeader = (raw || '').substring(0, headerLen);
+            const rawBody = (raw || '').substring(headerLen);
+            const escHeader = escapeHtml(rawHeader);
+            const escBody = escapeHtml(rawBody);
+            const regex = new RegExp(`(${escapeRegex(searchTerm)})`, 'gi');
+            return escHeader + escBody.replace(regex, '<span class="highlight">$1</span>');
+        }
+
+        // Build the set of lowercase substrings that identify a volume across log files:
+        // the CSI volume ID itself, the pv/pvc-uuid segment, and the LDEV decimal marker.
+        function buildVolumeFilterTerms(volumeId) {
+            const terms = new Set();
+            if (!volumeId) return [];
+            terms.add(volumeId.toLowerCase());
+            const pvcMatch = volumeId.match(/pvc-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+            if (pvcMatch) terms.add(pvcMatch[0].toLowerCase());
+            const vol = state.config.volumes[volumeId];
+            if (vol) {
+                // "ldevIDDec:<id>" is how driver logs reference the LDEV; safe (unambiguous) substring
+                if (vol.ldevId) terms.add(('ldevIDDec:' + vol.ldevId).toLowerCase());
+                if (vol.nickname && vol.nickname.length >= 6) terms.add(vol.nickname.toLowerCase());
+            }
+            return Array.from(terms);
+        }
+
+        // Show a unified cross-file timeline for a volume: all lines mentioning the volume
+        // across provisioner, driver, and node pod logs, in chronological order.
+        window.showVolumeTimeline = async function(volumeId) {
+            if (!volumeId || volumeId === 'N/A') return;
+            const vol = state.config.volumes[volumeId];
+            const shortId = volumeId.length > 28 ? volumeId.substring(0, 28) + '…' : volumeId;
+            const label = vol && vol.ldevId ? `Volume LDEV ${vol.ldevId}${vol.nickname ? ' (' + vol.nickname + ')' : ''}` : `Volume ${shortId}`;
+
+            showLoading(`Building timeline for ${label}...`);
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            switchToLogsTab();
+            resetLogViewForJump();
+
+            state.volumeFilter = { label: label, volumeId: volumeId, terms: buildVolumeFilterTerms(volumeId) };
+            state.categoryFilter = null;
+            rebuildTimelineOverlay();
+
+            invalidateCache();
+            if (typeof updatePodList === 'function') updatePodList();
+            await renderLogs();
+            logContent.scrollTop = 0;
+
+            updateVolumeFilterDisplay(state.volumeFilter.label);
+            hideLoading();
+        };
+
+        // Update the toolbar badge for the active volume/issue timeline filter
+        function updateVolumeFilterDisplay(label) {
+            const existingBadge = document.querySelector('.filter-badge');
+            if (existingBadge) {
+                existingBadge.remove();
+            }
+
+            if (label) {
+                const toolbar = document.querySelector('.toolbar');
+                const badge = document.createElement('span');
+                badge.className = 'filter-badge volume-filter-badge';
+                badge.innerHTML = `🕒 ${escapeHtml(label)} <span style="cursor: pointer; margin-left: 5px;" onclick="clearVolumeFilter()">✕</span>`;
+                toolbar.appendChild(badge);
+            }
+        }
+
+        // Clear volume/issue timeline filter
+        window.clearVolumeFilter = function() {
+            state.volumeFilter = null;
+            rebuildTimelineOverlay(); // may fall back to search/category overlay
+            invalidateCache();
+            renderLogs();
+            updateVolumeFilterDisplay(null);
+        };
+
+        // Jump to Logs tab filtered to the lines matched by a detected known issue
+        window.viewIssueLogs = async function(issueId) {
+            const issue = (state.detectedIssues || []).find(i => i.id === issueId);
+            if (!issue) return;
+
+            showLoading(`Loading logs for: ${issue.title}...`);
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            switchToLogsTab();
+            resetLogViewForJump();
+
+            state.volumeFilter = { label: `Issue: ${issue.title}`, volumeId: null, terms: issue.matchTerms.slice() };
+            state.categoryFilter = null;
+            rebuildTimelineOverlay();
+
+            invalidateCache();
+            if (typeof updatePodList === 'function') updatePodList();
+            await renderLogs();
+            logContent.scrollTop = 0;
+
+            updateVolumeFilterDisplay(state.volumeFilter.label);
+            hideLoading();
         };
 
         // View logs for a DRPolicy and its replications
@@ -8025,6 +9168,14 @@
             const logsContent = document.querySelector('[data-content="logs"]');
             logsTab.classList.add('active');
             logsContent.classList.add('active');
+
+            // Clear leftover time/pod filters so the DR search isn't empty
+            clearTimeFilterState();
+            state.currentPod = 'all';
+            state.expandedContexts.clear();
+            state.categoryFilter = null;
+            state.volumeFilter = null;
+            updateCategoryFilterDisplay(null);
             
             // Set search term to the policy name (logs will be filtered to show matches)
             // We'll search for the policy name which should match both the policy and replications
@@ -8033,16 +9184,13 @@
                 searchInput.value = policyName;
             }
             state.searchTerm = policyName;
+            rebuildTimelineOverlay();
             
             // Set filter to show all levels
             state.filterLevel = 'ALL';
             document.querySelectorAll('[data-level]').forEach(b => b.classList.remove('active'));
             const levelBtn = document.querySelector('[data-level="ALL"]');
             if (levelBtn) levelBtn.classList.add('active');
-            
-            // Clear category filter
-            state.categoryFilter = null;
-            updateCategoryFilterDisplay(null);
             
             // Set pod to 'all' to search across all pods
             state.currentPod = 'all';
@@ -8092,8 +9240,11 @@
             const levelBtn = document.querySelector(`[data-level="${state.filterLevel}"]`);
             if (levelBtn) levelBtn.classList.add('active');
             
-            // Clear category filter
+            // Clear leftover filters so the pod view isn't empty
+            clearTimeFilterState();
             state.categoryFilter = null;
+            state.volumeFilter = null;
+            state.timelineOverlay = null;
             updateCategoryFilterDisplay(null);
             
             // Clear search term
@@ -9790,6 +10941,8 @@ ${escapeHtml(trimmedYAML)}
                 clearTimeout(searchTimeout);
                 searchTimeout = setTimeout(() => {
                     state.searchTerm = e.target.value;
+                    // Volume/category overlays take priority; otherwise highlight search matches
+                    rebuildTimelineOverlay();
                     invalidateCache();
                     renderLogs();
                 }, 300);
@@ -9798,6 +10951,7 @@ ${escapeHtml(trimmedYAML)}
             searchClear.addEventListener('click', () => {
                 searchInput.value = '';
                 state.searchTerm = '';
+                rebuildTimelineOverlay();
                 invalidateCache();
                 renderLogs();
             });
