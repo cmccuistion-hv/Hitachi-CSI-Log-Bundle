@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Hitachi HSPC CSI Driver Log Bundle Collector v1.7.1
+# Hitachi HSPC CSI Driver Log Bundle Collector v1.9.0
 # - --kubeconfig is completely optional (uses default or $KUBECONFIG if present)
 # - Full OpenShift auto-detect + smart fallback to ./oc
 # - All manifests with status (deployments, daemonsets, replicasets)
+# - HSPC PersistentVolumes, PVCs, VolumeAttachments, and snapshots
 # - Collects logs from ALL containers in each pod
 # - Pod ownership chain
 # - Events, describes, version, HSPC CR
-# - Python zip fallback (always works)
+# - Zip via the zip command, or Python's zipfile if zip is not installed
 # - Optional MTC/MTV must-gather (--mtc / --mtv; OpenShift + oc required)
 # =============================================================================
 
 set -euo pipefail
 
 # Script version
-SCRIPT_VERSION="1.7.1-sh"
+SCRIPT_VERSION="1.9.0-sh"
 
 # Cancellation handling
 CANCELLED=false
@@ -79,6 +80,7 @@ KUBECONFIG_SECONDARY=""
 KUBECONFIG_ARG=""  # For backward compatibility
 NAMESPACE=""
 OUTPUT_DIR="./hspc-csi-logs-$(date +%Y%m%d-%H%M%S)"
+COLLECTED_CLUSTERS=()
 COMPRESS=true
 TIMEOUT_SEC=300
 MUST_GATHER_TIMEOUT_SEC=1800
@@ -480,6 +482,326 @@ JOBEOF
     log "Multipath collection complete for $cluster_name"
 }
 
+hspc_empty_json_list() {
+    printf '%s\n' '{"apiVersion":"v1","kind":"List","items":[]}' >"$1"
+}
+
+# kubectl/oc -o json is either one object or a List. Emit the object(s) inside items.
+hspc_emit_json_items() {
+    local file="$1"
+    if ! grep -Eq '^[[:space:]]*"items": \[' "$file"; then
+        cat "$file"
+        return 0
+    fi
+    awk '
+        BEGIN { state = 0; indent = "" }
+        state == 0 && $0 ~ /^[[:space:]]*"items": \[\][,]?$/ { exit }
+        state == 0 && $0 ~ /^[[:space:]]*"items": \[$/ {
+            indent = $0
+            sub(/"items": \[$/, "", indent)
+            state = 1
+            next
+        }
+        state == 1 {
+            if ($0 == indent "]" || $0 == indent "],") exit
+            print
+        }
+    ' "$file"
+}
+
+hspc_merge_json_lists() {
+    local outfile="$1"
+    shift
+    local first=1
+    local file body
+    {
+        printf '%s\n' '{' '"apiVersion": "v1",' '"kind": "List",' '"items": ['
+        for file in "$@"; do
+            [[ -s "$file" ]] || continue
+            body=$(hspc_emit_json_items "$file")
+            [[ -n "$body" ]] || continue
+            if [[ $first -eq 1 ]]; then
+                first=0
+            else
+                printf ',\n'
+            fi
+            printf '%s\n' "$body"
+        done
+        printf '%s\n' ']' '}'
+    } >"$outfile"
+}
+
+# Fetch selected objects as one JSON List. Namespace is empty for cluster-scoped resources.
+hspc_get_named_json() {
+    local outfile="$1"
+    local kubeconfig="$2"
+    local errors_log="$3"
+    local resource="$4"
+    local namespace="$5"
+    shift 5
+    if [[ $# -eq 0 ]]; then
+        hspc_empty_json_list "$outfile"
+        return 0
+    fi
+
+    local tmp part=0
+    local -a batch=()
+    local -a parts=()
+    tmp=$(mktemp -d)
+    local name
+    for name in "$@"; do
+        batch+=("$name")
+        if [[ ${#batch[@]} -eq 40 ]]; then
+            local piece="$tmp/part-${part}.json"
+            local -a args=(get "$resource")
+            [[ -n "$namespace" ]] && args+=(-n "$namespace")
+            args+=("${batch[@]}" -o json)
+            if ! KUBE_WITH_CONFIG "$kubeconfig" "${args[@]}" >"$piece" 2>>"$errors_log"; then
+                rm -rf "$tmp"
+                return 1
+            fi
+            parts+=("$piece")
+            batch=()
+            part=$((part + 1))
+        fi
+    done
+    if [[ ${#batch[@]} -gt 0 ]]; then
+        local piece="$tmp/part-${part}.json"
+        local -a args=(get "$resource")
+        [[ -n "$namespace" ]] && args+=(-n "$namespace")
+        args+=("${batch[@]}" -o json)
+        if ! KUBE_WITH_CONFIG "$kubeconfig" "${args[@]}" >"$piece" 2>>"$errors_log"; then
+            rm -rf "$tmp"
+            return 1
+        fi
+        parts+=("$piece")
+    fi
+    hspc_merge_json_lists "$outfile" "${parts[@]}"
+    rm -rf "$tmp"
+}
+
+hspc_jsonpath_lines() {
+    local kubeconfig="$1"
+    local errors_log="$2"
+    local namespaced="$3"
+    local resource="$4"
+    local expr="$5"
+    local -a args=(get "$resource")
+    [[ "$namespaced" == "true" ]] && args+=(-A)
+    args+=(-o "jsonpath=${expr}")
+    KUBE_WITH_CONFIG "$kubeconfig" "${args[@]}" 2>>"$errors_log"
+}
+
+collect_hspc_manifests() {
+    local kubeconfig="$1"
+    local cluster_output_dir="$2"
+    local manifests_dir="$cluster_output_dir/manifests"
+    local errors_log="$cluster_output_dir/errors.log"
+    local tmp_dir pv_count
+    local -A hspc_pv_names=()
+    local -A hspc_storage_classes=()
+    local -A hspc_pvc_keys=()
+    local -A hspc_snapshot_names=()
+
+    mkdir -p "$manifests_dir"
+    if [[ "$CANCELLED" == "true" ]]; then
+        return 0
+    fi
+
+    log "Collecting HSPC volume manifests..."
+    tmp_dir=$(mktemp -d)
+
+    local -a pv_name_list=()
+    local name sc
+    if hspc_jsonpath_lines "$kubeconfig" "$errors_log" false pv \
+        '{range .items[?(@.spec.csi.driver=="hspc.csi.hitachi.com")]}{.metadata.name}{"\t"}{.spec.storageClassName}{"\n"}{end}' \
+        >"$tmp_dir/pv.index"; then
+        while IFS=$'\t' read -r name sc || [[ -n "${name:-}" ]]; do
+            [[ -z "${name:-}" ]] && continue
+            hspc_pv_names["$name"]=1
+            pv_name_list+=("$name")
+            [[ -n "$sc" ]] && hspc_storage_classes["$sc"]=1
+            name=
+        done <"$tmp_dir/pv.index"
+    else
+        log "  WARNING: Could not list PersistentVolumes - writing an empty list"
+    fi
+    if [[ ${#pv_name_list[@]} -gt 0 ]]; then
+        if ! hspc_get_named_json "$manifests_dir/persistentvolumes.json" "$kubeconfig" "$errors_log" pv "" "${pv_name_list[@]}"; then
+            log "  WARNING: Could not read PersistentVolume objects - writing an empty list"
+            hspc_empty_json_list "$manifests_dir/persistentvolumes.json"
+            pv_name_list=()
+        fi
+    else
+        hspc_empty_json_list "$manifests_dir/persistentvolumes.json"
+    fi
+
+    declare -A pvc_by_ns=()
+    local ns pvc_name volume_name storage_class
+    if hspc_jsonpath_lines "$kubeconfig" "$errors_log" true pvc \
+        '{range .items[*]}{.metadata.namespace}{"\t"}{.metadata.name}{"\t"}{.spec.volumeName}{"\t"}{.spec.storageClassName}{"\n"}{end}' \
+        >"$tmp_dir/pvc.index"; then
+        while IFS=$'\t' read -r ns pvc_name volume_name storage_class || [[ -n "${ns:-}" ]]; do
+            [[ -z "${pvc_name:-}" ]] && continue
+            if [[ -n "$volume_name" && -n "${hspc_pv_names[$volume_name]+x}" ]] || \
+               [[ -n "$storage_class" && -n "${hspc_storage_classes[$storage_class]+x}" ]]; then
+                hspc_pvc_keys["${ns}/${pvc_name}"]=1
+                pvc_by_ns["$ns"]="${pvc_by_ns[$ns]:-}${pvc_name}"$'\n'
+            fi
+            ns=
+        done <"$tmp_dir/pvc.index"
+    else
+        log "  WARNING: Could not list PersistentVolumeClaims - writing an empty list"
+    fi
+    local -a pvc_parts=()
+    local ns_name piece_i=0
+    if [[ ${#pvc_by_ns[@]} -gt 0 ]]; then
+    for ns_name in "${!pvc_by_ns[@]}"; do
+        local -a ns_pvcs=()
+        local one
+        while IFS= read -r one; do
+            [[ -n "$one" ]] && ns_pvcs+=("$one")
+        done <<<"${pvc_by_ns[$ns_name]}"
+        local piece="$tmp_dir/pvc-${piece_i}.json"
+        if hspc_get_named_json "$piece" "$kubeconfig" "$errors_log" pvc "$ns_name" "${ns_pvcs[@]}"; then
+            pvc_parts+=("$piece")
+        else
+            log "  WARNING: Could not read PersistentVolumeClaims in $ns_name"
+        fi
+        piece_i=$((piece_i + 1))
+    done
+    fi
+    if [[ ${#pvc_parts[@]} -gt 0 ]]; then
+        hspc_merge_json_lists "$manifests_dir/persistentvolumeclaims.json" "${pvc_parts[@]}"
+    else
+        hspc_empty_json_list "$manifests_dir/persistentvolumeclaims.json"
+    fi
+
+    local -a va_names=()
+    local va_name pv_name
+    if hspc_jsonpath_lines "$kubeconfig" "$errors_log" false volumeattachment \
+        '{range .items[*]}{.metadata.name}{"\t"}{.spec.source.persistentVolumeName}{"\n"}{end}' \
+        >"$tmp_dir/va.index"; then
+        while IFS=$'\t' read -r va_name pv_name || [[ -n "${va_name:-}" ]]; do
+            [[ -z "${va_name:-}" ]] && continue
+            if [[ -n "$pv_name" && -n "${hspc_pv_names[$pv_name]+x}" ]]; then
+                va_names+=("$va_name")
+            fi
+            va_name=
+        done <"$tmp_dir/va.index"
+    else
+        log "  WARNING: Could not list VolumeAttachments - writing an empty list"
+    fi
+    if [[ ${#va_names[@]} -gt 0 ]]; then
+        if ! hspc_get_named_json "$manifests_dir/volumeattachments.json" "$kubeconfig" "$errors_log" volumeattachment "" "${va_names[@]}"; then
+            log "  WARNING: Could not read VolumeAttachments - writing an empty list"
+            hspc_empty_json_list "$manifests_dir/volumeattachments.json"
+        fi
+    else
+        hspc_empty_json_list "$manifests_dir/volumeattachments.json"
+    fi
+
+    declare -A snap_by_ns=()
+    local snap_ns snap_name claim_name
+    if hspc_jsonpath_lines "$kubeconfig" "$errors_log" true volumesnapshot \
+        '{range .items[*]}{.metadata.namespace}{"\t"}{.metadata.name}{"\t"}{.spec.source.persistentVolumeClaimName}{"\n"}{end}' \
+        >"$tmp_dir/snap.index"; then
+        while IFS=$'\t' read -r snap_ns snap_name claim_name || [[ -n "${snap_ns:-}" ]]; do
+            [[ -z "${snap_name:-}" ]] && continue
+            if [[ -n "$claim_name" && -n "${hspc_pvc_keys[${snap_ns}/${claim_name}]+x}" ]]; then
+                hspc_snapshot_names["$snap_name"]=1
+                snap_by_ns["$snap_ns"]="${snap_by_ns[$snap_ns]:-}${snap_name}"$'\n'
+            fi
+            snap_ns=
+        done <"$tmp_dir/snap.index"
+    else
+        log "  WARNING: Could not list VolumeSnapshots - writing an empty list"
+    fi
+    local -a snap_parts=()
+    piece_i=0
+    if [[ ${#snap_by_ns[@]} -gt 0 ]]; then
+    for ns_name in "${!snap_by_ns[@]}"; do
+        local -a ns_snaps=()
+        local one_snap
+        while IFS= read -r one_snap; do
+            [[ -n "$one_snap" ]] && ns_snaps+=("$one_snap")
+        done <<<"${snap_by_ns[$ns_name]}"
+        local snap_piece="$tmp_dir/snap-${piece_i}.json"
+        if hspc_get_named_json "$snap_piece" "$kubeconfig" "$errors_log" volumesnapshot "$ns_name" "${ns_snaps[@]}"; then
+            snap_parts+=("$snap_piece")
+        else
+            log "  WARNING: Could not read VolumeSnapshots in $ns_name"
+        fi
+        piece_i=$((piece_i + 1))
+    done
+    fi
+    if [[ ${#snap_parts[@]} -gt 0 ]]; then
+        hspc_merge_json_lists "$manifests_dir/volumesnapshots.json" "${snap_parts[@]}"
+    else
+        hspc_empty_json_list "$manifests_dir/volumesnapshots.json"
+    fi
+
+    local -a content_names=()
+    local driver ref_name content_name
+    if hspc_jsonpath_lines "$kubeconfig" "$errors_log" false volumesnapshotcontent \
+        '{range .items[*]}{.metadata.name}{"\t"}{.spec.driver}{"\t"}{.spec.volumeSnapshotRef.name}{"\n"}{end}' \
+        >"$tmp_dir/content.index"; then
+        while IFS=$'\t' read -r content_name driver ref_name || [[ -n "${content_name:-}" ]]; do
+            [[ -z "${content_name:-}" ]] && continue
+            if [[ "$driver" == "hspc.csi.hitachi.com" ]] || \
+               [[ -n "$ref_name" && -n "${hspc_snapshot_names[$ref_name]+x}" ]]; then
+                content_names+=("$content_name")
+            fi
+            content_name=
+        done <"$tmp_dir/content.index"
+    else
+        log "  WARNING: Could not list VolumeSnapshotContents - writing an empty list"
+    fi
+    if [[ ${#content_names[@]} -gt 0 ]]; then
+        if ! hspc_get_named_json "$manifests_dir/volumesnapshotcontents.json" "$kubeconfig" "$errors_log" volumesnapshotcontent "" "${content_names[@]}"; then
+            log "  WARNING: Could not read VolumeSnapshotContents - writing an empty list"
+            hspc_empty_json_list "$manifests_dir/volumesnapshotcontents.json"
+        fi
+    else
+        hspc_empty_json_list "$manifests_dir/volumesnapshotcontents.json"
+    fi
+
+    pv_count=${#pv_name_list[@]}
+    log "  Selected ${pv_count} HSPC PersistentVolume(s)"
+    if [[ "$pv_count" -gt 500 ]]; then
+        log "  WARNING: Large manifest set ($pv_count PVs) - bundle may be slow to load in the viewer"
+    fi
+    rm -rf "$tmp_dir"
+}
+
+write_bundle_meta() {
+    local clusters_json="["
+    local first=1
+    local cluster escaped
+    if ((${#COLLECTED_CLUSTERS[@]})); then
+        for cluster in "${COLLECTED_CLUSTERS[@]}"; do
+            escaped=${cluster//\\/\\\\}
+            escaped=${escaped//\"/\\\"}
+            if [[ $first -eq 1 ]]; then
+                first=0
+            else
+                clusters_json+=","
+            fi
+            clusters_json+="\"${escaped}\""
+        done
+    fi
+    clusters_json+="]"
+    cat > "$OUTPUT_DIR/bundle-meta.json" <<EOF
+{
+  "schemaVersion": 1,
+  "scriptVersion": "$SCRIPT_VERSION",
+  "collectedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "clusters": $clusters_json
+}
+EOF
+    log "Bundle metadata saved: $OUTPUT_DIR/bundle-meta.json"
+}
+
 collect_from_cluster() {
     local kubeconfig="$1"
     local cluster_name="$2"
@@ -580,6 +902,10 @@ collect_from_cluster() {
         else
             log "No HSPC Operator pods found on $cluster_name"
         fi
+    fi
+
+    if [[ "$CANCELLED" != "true" ]]; then
+        collect_hspc_manifests "$kubeconfig" "$cluster_output_dir"
     fi
     
     # Check for DR-Operator
@@ -866,6 +1192,7 @@ collect_from_cluster() {
     fi
 
     KUBECONFIG_ARG="$saved_kubeconfig_arg"
+    COLLECTED_CLUSTERS+=("$cluster_name")
     log "Collection from $cluster_name complete"
 }
 
@@ -896,6 +1223,9 @@ Usage: ./get_hitachicsilogs.sh [options]
                                (OpenShift + oc required; skipped with warning if not detected)
   --mtv                        Run oc adm must-gather for Migration Toolkit for Virtualization
                                (OpenShift + oc required; skipped with warning if not detected)
+
+Collects HSPC PersistentVolumes, claims, volume attachments, and snapshots
+into <cluster>/manifests/ as JSON. No extra runtime is required.
 EOF
             exit 0
             ;;
@@ -964,6 +1294,8 @@ if [[ "$CANCELLED" == "true" ]]; then
     exit 130
 fi
 
+write_bundle_meta
+
 log "Collection complete → $OUTPUT_DIR"
 
 if $COMPRESS; then
@@ -986,7 +1318,7 @@ with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as z:
 " "$zipfile" "$OUTPUT_DIR"
         log "Zip created (Python): $zipfile"
     else
-        log "No zip/python → folder only"
+        log "No zip command or Python found - leaving the folder at $OUTPUT_DIR"
     fi
 fi
 

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Hitachi HSPC CSI Driver Log Bundle Collector v1.7.1 - PowerShell Edition
+    Hitachi HSPC CSI Driver Log Bundle Collector v1.9.0 - PowerShell Edition
     -Kubeconfig optional · auto-detect OpenShift · full manifests
     -Collects logs from ALL containers in each pod
     -Supports dual-cluster collection with DR-Operator detection
@@ -76,7 +76,8 @@ param(
 $ErrorActionPreference = "Stop"
 
 # Script version
-$SCRIPT_VERSION = "1.7.1-ps1"
+$SCRIPT_VERSION = "1.9.0-ps1"
+$script:CollectedClusters = @()
 
 # Cancellation handling
 $script:Cancelled = $false
@@ -553,6 +554,173 @@ spec:
     Log "Multipath collection complete for $ClusterName"
 }
 
+function Get-KubeListJson {
+    param(
+        [string]$KubeconfigPath,
+        [string]$ClusterOutputDir,
+        [string]$Resource,
+        [string]$Label
+    )
+
+    $errorsLog = Join-Path $ClusterOutputDir "errors.log"
+    $ErrorActionPreference = 'SilentlyContinue'
+    $out = Invoke-KubeWithConfig -KubeconfigPath $KubeconfigPath get $Resource -A -o json 2>> $errorsLog
+    $ok = $?
+    $ErrorActionPreference = 'Stop'
+
+    if ($ok -and $out) {
+        return $out
+    }
+
+    Log "  WARNING: Could not list $Label - writing empty list"
+    return '{"apiVersion":"v1","kind":"List","items":[]}'
+}
+
+function Get-ListItems {
+    param($JsonText)
+    try {
+        $parsed = $JsonText | ConvertFrom-Json
+    } catch {
+        return @()
+    }
+    if ($null -eq $parsed -or $null -eq $parsed.items) {
+        return @()
+    }
+    return @($parsed.items)
+}
+
+function Select-HspcVolumesInline {
+    param([hashtable]$Resources)
+
+    $hspcDriver = "hspc.csi.hitachi.com"
+    $hspcPvs = @($Resources.pvs | Where-Object { $_.spec.csi.driver -eq $hspcDriver })
+    $hspcPvNames = @($hspcPvs | ForEach-Object { $_.metadata.name } | Where-Object { $_ })
+    $hspcStorageClasses = @(
+        $hspcPvs |
+            ForEach-Object { $_.spec.storageClassName } |
+            Where-Object { $_ }
+    )
+
+    $hspcPvcs = @(
+        $Resources.pvcs | Where-Object {
+            ($_.spec.volumeName -and $hspcPvNames -contains $_.spec.volumeName) -or
+            ($_.spec.storageClassName -and $hspcStorageClasses -contains $_.spec.storageClassName)
+        }
+    )
+
+    $hspcPvcKeys = @(
+        $hspcPvcs |
+            ForEach-Object { "$($_.metadata.namespace)/$($_.metadata.name)" } |
+            Where-Object { $_ -notmatch '^/' }
+    )
+
+    $hspcVas = @(
+        $Resources.vas | Where-Object {
+            $_.spec.source.persistentVolumeName -and
+            $hspcPvNames -contains $_.spec.source.persistentVolumeName
+        }
+    )
+
+    $hspcSnapshots = @(
+        $Resources.snapshots | Where-Object {
+            $key = "$($_.metadata.namespace)/$($_.spec.source.persistentVolumeClaimName)"
+            $hspcPvcKeys -contains $key
+        }
+    )
+
+    $hspcSnapshotNames = @($hspcSnapshots | ForEach-Object { $_.metadata.name } | Where-Object { $_ })
+    $hspcSnapshotContents = @(
+        $Resources.snapshotcontents | Where-Object {
+            $_.spec.driver -eq $hspcDriver -or
+            ($_.spec.volumeSnapshotRef.name -and $hspcSnapshotNames -contains $_.spec.volumeSnapshotRef.name)
+        }
+    )
+
+    return @{
+        pvs = $hspcPvs
+        pvcs = $hspcPvcs
+        vas = $hspcVas
+        snapshots = $hspcSnapshots
+        snapshotcontents = $hspcSnapshotContents
+    }
+}
+
+function Write-HspcManifestLists {
+    param(
+        [hashtable]$Selected,
+        [string]$ManifestsDir
+    )
+
+    New-Item -ItemType Directory -Force -Path $ManifestsDir | Out-Null
+    $files = [ordered]@{
+        pvs = "persistentvolumes"
+        pvcs = "persistentvolumeclaims"
+        vas = "volumeattachments"
+        snapshots = "volumesnapshots"
+        snapshotcontents = "volumesnapshotcontents"
+    }
+
+    foreach ($key in $files.Keys) {
+        $items = @($Selected[$key])
+        $apiVersion = "v1"
+        if ($items.Count -gt 0 -and $items[0].apiVersion) {
+            $apiVersion = $items[0].apiVersion
+        }
+        $list = [ordered]@{
+            apiVersion = $apiVersion
+            kind = "List"
+            items = $items
+        }
+        $json = $list | ConvertTo-Json -Depth 100
+        $base = Join-Path $ManifestsDir $files[$key]
+        $utf8 = New-Object System.Text.UTF8Encoding $false
+        [System.IO.File]::WriteAllText("$base.json", $json.Trim() + "`n", $utf8)
+    }
+}
+
+function Invoke-HspcManifestCollection {
+    param(
+        [string]$KubeconfigPath,
+        [string]$ClusterOutputDir
+    )
+
+    if ($script:Cancelled) { return }
+
+    $manifestsDir = Join-Path $ClusterOutputDir "manifests"
+
+    Log "Collecting HSPC volume manifests..."
+
+    $resources = @{
+        pvs = @(Get-ListItems (Get-KubeListJson -KubeconfigPath $KubeconfigPath -ClusterOutputDir $ClusterOutputDir -Resource "pv" -Label "PersistentVolumes"))
+        pvcs = @(Get-ListItems (Get-KubeListJson -KubeconfigPath $KubeconfigPath -ClusterOutputDir $ClusterOutputDir -Resource "pvc" -Label "PersistentVolumeClaims"))
+        vas = @(Get-ListItems (Get-KubeListJson -KubeconfigPath $KubeconfigPath -ClusterOutputDir $ClusterOutputDir -Resource "volumeattachment" -Label "VolumeAttachments"))
+        snapshots = @(Get-ListItems (Get-KubeListJson -KubeconfigPath $KubeconfigPath -ClusterOutputDir $ClusterOutputDir -Resource "volumesnapshot" -Label "VolumeSnapshots"))
+        snapshotcontents = @(Get-ListItems (Get-KubeListJson -KubeconfigPath $KubeconfigPath -ClusterOutputDir $ClusterOutputDir -Resource "volumesnapshotcontent" -Label "VolumeSnapshotContents"))
+    }
+
+    $inline = Select-HspcVolumesInline -Resources $resources
+    Write-HspcManifestLists -Selected $inline -ManifestsDir $manifestsDir
+    $pvCount = @($inline.pvs).Count
+    Log "  Selected $pvCount HSPC PersistentVolume(s)"
+    if ($pvCount -gt 500) {
+        Log "  WARNING: Large manifest set ($pvCount PVs) - bundle may be slow to load in the viewer"
+    }
+}
+
+function Write-BundleMeta {
+    $meta = [ordered]@{
+        schemaVersion = 1
+        scriptVersion = $SCRIPT_VERSION
+        collectedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        clusters = @($script:CollectedClusters)
+    }
+    $metaPath = Join-Path $OutputDir "bundle-meta.json"
+    $utf8 = New-Object System.Text.UTF8Encoding $false
+    $json = ($meta | ConvertTo-Json -Depth 5)
+    [System.IO.File]::WriteAllText($metaPath, $json.Trim() + "`n", $utf8)
+    Log "Bundle metadata saved: $metaPath"
+}
+
 function Get-FromCluster {
     param(
         [string]$KubeconfigPath,
@@ -823,6 +991,10 @@ function Get-FromCluster {
         } else {
             Log "No HSPC Operator pods found on $ClusterName"
         }
+    }
+
+    if (-not $script:Cancelled) {
+        Invoke-HspcManifestCollection -KubeconfigPath $KubeconfigPath -ClusterOutputDir $clusterOutputDir
     }
     
     # Check for DR-Operator
@@ -1239,6 +1411,7 @@ function Get-FromCluster {
             -Tool "mtv" -Image "registry.redhat.io/migration-toolkit-virtualization/mtv-must-gather-rhel8:2.11.0"
     }
 
+    $script:CollectedClusters += $ClusterName
     $Kubeconfig = $savedKubeconfig
     Log "Collection from $ClusterName complete"
 }
@@ -1343,6 +1516,8 @@ if ($script:Cancelled) {
     Log "Collection cancelled - skipping compression"
     exit 130
 }
+
+Write-BundleMeta
 
 Log "Collection complete → $OutputDir"
 

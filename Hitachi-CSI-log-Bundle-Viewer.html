@@ -570,6 +570,40 @@
             background: rgba(244, 135, 113, 0.1);
         }
 
+        button.log-pvc-link {
+            background: none;
+            border: none;
+            padding: 0;
+            font: inherit;
+            color: var(--accent-blue);
+            cursor: pointer;
+            text-decoration: underline;
+            text-underline-offset: 2px;
+        }
+
+        .log-pvc-link.log-pvc-error {
+            color: var(--error-red);
+            font-weight: 600;
+            background: rgba(244, 135, 113, 0.22);
+            border-radius: 2px;
+            padding: 0 2px;
+        }
+
+        .log-line.mentions-volume-error {
+            box-shadow: inset 3px 0 0 var(--error-red);
+        }
+
+        .yaml-modal-tabs {
+            display: flex;
+            gap: 8px;
+            padding: 10px 4px 8px;
+        }
+
+        .yaml-modal-tabs button.active {
+            background: var(--accent-blue);
+            color: #fff;
+        }
+
         .log-line.warning {
             color: var(--warning-yellow);
         }
@@ -1394,6 +1428,18 @@
             font-weight: 600;
         }
 
+        button.port-badge,
+        button.issue-badge {
+            border: none;
+            cursor: pointer;
+            font-family: inherit;
+        }
+
+        button.port-badge:hover,
+        button.issue-badge:hover {
+            filter: brightness(1.12);
+        }
+
         .volume-nickname {
             color: var(--info-blue);
             font-weight: 600;
@@ -2111,7 +2157,7 @@
     <script>
 
         // Version Configuration
-        const VERSION = '1.8.0';
+        const VERSION = '1.9.0';
         const GITHUB_REPO = 'cmccuistion-hv/Hitachi-CSI-Log-Bundle';
         const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`;
         const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
@@ -2122,6 +2168,8 @@
             allLogs: [],  // Pre-concatenated logs for "all pods" view (performance optimization)
             clusterContext: {},
             multipath: {},  // Per-cluster, per-node multipath data: { cluster: { nodeName: content } }
+            manifests: {},  // Per-cluster HSPC volume lists: { cluster: { pvs, pvcs, vas, snapshots, snapshotcontents } }
+            manifestsSeen: {},  // cluster -> true when manifests/*.json was loaded
             clusters: [],
             currentCluster: null,  // null = all clusters, or specific cluster name
             currentPod: 'all',
@@ -2521,8 +2569,9 @@
                         const isLogFile = filename.endsWith('.log');
                         const isClusterContext = filename.includes('cluster-context');
                         const isMultipath = filename.includes('/multipath/') && filename.endsWith('.txt');
+                        const isManifest = filename.includes('/manifests/') && filename.endsWith('.json');
                         
-                        if (isLogFile || isClusterContext || isMultipath) {
+                        if (isLogFile || isClusterContext || isMultipath || isManifest) {
                             try {
                                 const content = await zipEntry.async('string');
                                 
@@ -2536,7 +2585,7 @@
                                     cluster = 'secondary-cluster';
                                 }
                                 
-                                files.push({ name, content, cluster, path: filename, isMultipath });
+                                files.push({ name, content, cluster, path: filename, isMultipath, isManifest });
                             } catch (e) {
                                 console.error('Error reading file content for', filename, ':', e);
                             }
@@ -2576,7 +2625,8 @@
                 console.log('Checking file:', file.name, 'webkitRelativePath:', file.webkitRelativePath);
                 const relativePath = file.webkitRelativePath || file.name;
                 const isMultipath = relativePath.includes('/multipath/') && file.name.endsWith('.txt');
-                if ((file.name.endsWith('.log') && file.name !== 'errors.log') || file.name.includes('cluster-context') || isMultipath) {
+                const isManifest = relativePath.includes('/manifests/') && file.name.endsWith('.json');
+                if ((file.name.endsWith('.log') && file.name !== 'errors.log') || file.name.includes('cluster-context') || isMultipath || isManifest) {
                     const content = await file.text();
                     
                     // Extract cluster name from path
@@ -2589,7 +2639,7 @@
                         }
                     }
                     
-                    fileContents.push({ name: file.name, content, cluster, path: relativePath, isMultipath });
+                    fileContents.push({ name: file.name, content, cluster, path: relativePath, isMultipath, isManifest });
                 }
             }
             
@@ -2648,6 +2698,10 @@
                 state.logs = {};
                 state.clusterContext = {};
                 state.multipath = {};
+                state.manifests = {};
+                state.manifestsSeen = {};
+                state.pvTableRows = null;
+                state.volumeLinkRegex = null;
                 state.clusters = [];
             state.inferredYear = null;  // Reset year inference for new bundle
             state.volumeSearchTerm = '';
@@ -2760,6 +2814,14 @@
                             const nodeName = file.name.replace(/\.txt$/, '');
                             if (!state.multipath[cluster]) state.multipath[cluster] = {};
                             state.multipath[cluster][nodeName] = file.content;
+                        }
+                    }
+                }
+
+                if (files && Array.isArray(files)) {
+                    for (const file of files) {
+                        if (file && file.isManifest) {
+                            ingestManifestFile(file);
                         }
                     }
                 }
@@ -4619,11 +4681,68 @@
         }
 
         function extractArraySerialFromVolumeId(volumeId) {
+            const parsed = parseHspcVolumeHandle(volumeId);
+            if (parsed && parsed.serial) return parsed.serial;
             const scsiMatch = volumeId.match(/--scsi--(\d+)--/i);
             if (scsiMatch) return normalizeArraySerial(scsiMatch[1]);
             const fallback = volumeId.match(/--(\d{5,})--/);
             if (fallback) return normalizeArraySerial(fallback[1]);
             return 'Unknown';
+        }
+
+        // HSPC volumeHandle: <version>--<proto>--<serial>--<ldevDec>--<nickname>
+        // Example: 01--scsi--900000070010--914--spc-ecdf100f22
+        function parseHspcVolumeHandle(handle) {
+            const parts = String(handle || '').split('--');
+            if (parts.length < 5) return null;
+            if (!/^\d+$/.test(parts[2]) || !/^\d+$/.test(parts[3])) return null;
+            return {
+                connection: parts[1],
+                serial: normalizeArraySerial(parts[2]),
+                ldevId: String(parseInt(parts[3], 10)),
+                nickname: parts.slice(4).join('--')
+            };
+        }
+
+        function csiVolumeAttributes(pv) {
+            const csi = pv && pv.spec && pv.spec.csi;
+            return (csi && csi.volumeAttributes) || {};
+        }
+
+        function storageClassPortList(sc) {
+            if (!sc || !sc.parameters) return [];
+            return [sc.parameters.portID, sc.parameters.primaryPortID, sc.parameters.secondaryPortID]
+                .filter(Boolean)
+                .join(',')
+                .split(',')
+                .map(port => port.trim())
+                .filter(Boolean);
+        }
+
+        function hspcIdentityFromPv(pv, storageClasses) {
+            const handle = (pv.spec && pv.spec.csi && pv.spec.csi.volumeHandle) || '';
+            const attrs = csiVolumeAttributes(pv);
+            const parsed = parseHspcVolumeHandle(handle);
+            const scName = pv.spec && pv.spec.storageClassName;
+            const sc = (storageClasses || []).find(item => item.name === scName);
+            const scSerial = sc && sc.parameters && sc.parameters.serialNumber
+                ? normalizeArraySerial(String(sc.parameters.serialNumber).trim())
+                : '';
+            const ldevRaw = attrs.ldevIDDec || attrs.ldevIdDec || (parsed && parsed.ldevId) || '';
+            const ldevId = ldevRaw === '' ? '' : String(parseInt(ldevRaw, 10) || ldevRaw);
+            let ports = [];
+            if (attrs.ports) {
+                ports = String(attrs.ports).split(',').map(port => port.trim()).filter(Boolean);
+            }
+            if (!ports.length) ports = storageClassPortList(sc);
+            ports = Array.from(new Set(ports));
+            return {
+                ldevId: ldevId,
+                ldevHex: attrs.ldevIDHex || attrs.ldevIdHex || '',
+                ports: ports,
+                arraySerial: (parsed && parsed.serial) || scSerial || '',
+                nickname: attrs.nickname || (parsed && parsed.nickname) || ''
+            };
         }
 
         function extractMappingsFromLine(line) {
@@ -4740,6 +4859,22 @@
                 if (level === 'ERROR') state.config.ports[portKey].errors++;
                 if (level === 'WARNING') state.config.ports[portKey].warnings++;
             }
+        }
+
+        function ensurePortUsageEntry(portsInfo, portName, arraySerial) {
+            const serial = normalizeArraySerial(String(arraySerial));
+            const portKey = `${portName}:${serial}`;
+            if (!portsInfo.has(portKey)) {
+                portsInfo.set(portKey, {
+                    name: portName,
+                    arraySerial: serial,
+                    volumes: new Set(),
+                    logTerms: new Set(),
+                    errors: 0,
+                    warnings: 0
+                });
+            }
+            return portsInfo.get(portKey);
         }
 
         function findPortInfoEntry(portsInfo, portName, arraySerial) {
@@ -5262,6 +5397,39 @@
             state.lazyParsed.storageClasses = true;
         }
         
+        // Concatenated kubectl/shell YAML and browser-plugin YAML use different key
+        // orders. A repeated top-level key starts the next object, so the split
+        // does not depend on allowVolumeExpansion or apiVersion coming first.
+        function splitTopLevelYamlObjects(sectionText) {
+            if (!sectionText || !sectionText.trim()) return [];
+            const blocks = [];
+            let current = [];
+            const seen = new Set();
+
+            function flush() {
+                const text = current.join('\n').trim();
+                if (text) blocks.push(text);
+                current = [];
+                seen.clear();
+            }
+
+            for (const line of sectionText.split('\n')) {
+                if (line.trim() === '---') {
+                    flush();
+                    continue;
+                }
+                const topLevel = line.match(/^([A-Za-z0-9][A-Za-z0-9_.\/-]*):/);
+                if (topLevel) {
+                    const key = topLevel[1];
+                    if (seen.has(key)) flush();
+                    seen.add(key);
+                }
+                current.push(line);
+            }
+            flush();
+            return blocks;
+        }
+
         function parseStorageClassBlock(block) {
             try {
                 const sc = {
@@ -5292,10 +5460,10 @@
                 const expansionMatch = block.match(/^allowVolumeExpansion:\s*(.+)$/m);
                 if (expansionMatch) sc.allowVolumeExpansion = expansionMatch[1].trim() === 'true';
 
-                const defaultMatch = block.match(/storageclass\.kubernetes\.io\/is-default-class:\s*"true"/);
+                const defaultMatch = block.match(/storageclass\.kubernetes\.io\/is-default-class:\s*['"]true['"]/);
                 if (defaultMatch) sc.isDefault = true;
 
-                const timestampMatch = block.match(/creationTimestamp:\s*"([^"]+)"/);
+                const timestampMatch = block.match(/creationTimestamp:\s*['"]([^'"]+)['"]/);
                 if (timestampMatch) sc.creationTimestamp = timestampMatch[1].trim();
 
                 const paramsMatch = block.match(/^parameters:\s*\n((?:^\s{2}\S.*\n?)+)/m);
@@ -5335,7 +5503,7 @@
             if (!scSectionMatch) return;
 
             const scSection = scSectionMatch[1];
-            const scBlocks = scSection.split(/(?=^allowVolumeExpansion:)/m).filter(b => b.trim() && b.includes('kind: StorageClass'));
+            const scBlocks = splitTopLevelYamlObjects(scSection).filter(b => b.includes('kind: StorageClass'));
 
             for (const block of scBlocks) {
                 const sc = parseStorageClassBlock(block);
@@ -5346,7 +5514,7 @@
         function parseVolumeSnapshotClassBlocks(sectionText) {
             const results = [];
             if (!sectionText || !sectionText.trim()) return results;
-            const vscBlocks = sectionText.split(/(?=^apiVersion: snapshot\.storage\.k8s\.io\/)/m).filter(b => b.trim() && b.includes('kind: VolumeSnapshotClass'));
+            const vscBlocks = splitTopLevelYamlObjects(sectionText).filter(b => b.includes('kind: VolumeSnapshotClass'));
             for (const block of vscBlocks) {
                 try {
                     const vsc = {
@@ -5370,10 +5538,10 @@
                     if (scRefMatch) vsc.storageClassRef = scRefMatch[1].trim().replace(/^["']|["']$/g, '');
                     const descMatch = block.match(/^\s+kubernetes\.io\/description:\s*(.+)$/m);
                     if (descMatch) vsc.description = descMatch[1].trim().replace(/^["']|["']$/g, '');
-                    if (/velero\.io\/csi-volumesnapshot-class:\s*"?true"?/m.test(block)) {
+                    if (/velero\.io\/csi-volumesnapshot-class:\s*['"]?true['"]?/m.test(block)) {
                         vsc.isVelero = true;
                     }
-                    const timestampMatch = block.match(/creationTimestamp:\s*"([^"]+)"/);
+                    const timestampMatch = block.match(/creationTimestamp:\s*['"]([^'"]+)['"]/);
                     if (timestampMatch) vsc.creationTimestamp = timestampMatch[1].trim();
                     const paramsMatch = block.match(/^parameters:\s*\n((?:^\s{2}\S.*\n?)+)/m);
                     if (paramsMatch) {
@@ -6207,6 +6375,7 @@
 
         // Virtual Scrolling: Render only visible logs
         async function renderLogs() {
+            refreshVolumeLinkIndex();
             const filtered = getFilteredLogs();
 
             // Keep the density strip in sync (selection + filtered overlay)
@@ -6345,10 +6514,13 @@
             if (log._isContextTarget) {
                 className += ' context-target';
             }
-            
+
+            const linked = linkVolumeNames(escapeHtml(log.raw || ''));
+            let line = highlightOutsideTags(linked.html, state.searchTerm);
+            if (linked.mentionsError && (log.level === 'ERROR' || log.level === 'WARNING')) {
+                className += ' mentions-volume-error';
+            }
             div.className = className;
-            
-            let line = highlightSearchInLogLine(log.raw, state.searchTerm);
 
             // Strip cluster prefix from source display (views are now separated by cluster)
             let displaySource = log.source;
@@ -6536,6 +6708,17 @@
         // Setup scroll listener for virtual scrolling
         function setupVirtualScroll() {
             let scrollTimeout;
+            logContent.addEventListener('click', (event) => {
+                const link = event.target.closest('.log-pvc-link');
+                if (!link || !logContent.contains(link)) return;
+                const index = Number(link.getAttribute('data-pv-index'));
+                if (!Number.isInteger(index)) return;
+                event.preventDefault();
+                event.stopPropagation();
+                const row = (state.pvTableRows || [])[index];
+                const which = row && link.textContent === row.pvcName ? 'pvc' : 'pv';
+                showPersistentVolumeYaml(index, which);
+            });
             logContent.addEventListener('scroll', () => {
                 state.virtualScroll.scrollTop = logContent.scrollTop;
                 
@@ -6629,7 +6812,7 @@
                 const scSectionMatch = clusterContextContent.match(/===\s+HSPC StorageClasses\s+===\n([\s\S]*?)(?:\n===|$)/);
                 if (scSectionMatch) {
                     const scSection = scSectionMatch[1];
-                    const scBlocks = scSection.split(/(?=^allowVolumeExpansion:)/m).filter(b => b.trim() && b.includes('kind: StorageClass'));
+                    const scBlocks = splitTopLevelYamlObjects(scSection).filter(b => b.includes('kind: StorageClass'));
 
                     for (const block of scBlocks) {
                         const sc = parseStorageClassBlock(block);
@@ -6706,6 +6889,619 @@
             };
         }
         
+        function emptyManifestLists() {
+            return { pvs: [], pvcs: [], vas: [], snapshots: [], snapshotcontents: [] };
+        }
+
+        function manifestKeyFromFilename(name) {
+            const map = {
+                'persistentvolumes.json': 'pvs',
+                'persistentvolumeclaims.json': 'pvcs',
+                'volumeattachments.json': 'vas',
+                'volumesnapshots.json': 'snapshots',
+                'volumesnapshotcontents.json': 'snapshotcontents'
+            };
+            return map[name] || null;
+        }
+
+        function ingestManifestFile(file) {
+            const key = manifestKeyFromFilename(file.name);
+            if (!key || !file.content) return;
+            const cluster = file.cluster || 'default';
+            if (!state.manifests[cluster]) state.manifests[cluster] = emptyManifestLists();
+            try {
+                const parsed = JSON.parse(String(file.content).replace(/^\uFEFF/, ''));
+                const items = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.items) ? parsed.items : []);
+                state.manifests[cluster][key] = items;
+                state.manifestsSeen[cluster] = true;
+            } catch (e) {
+                console.error('Failed to parse manifest', file.path || file.name, e);
+            }
+        }
+
+        function manifestsWereCollected() {
+            if (!state.manifestsSeen) return false;
+            if (state.currentCluster && state.manifestsSeen[state.currentCluster]) return true;
+            if (!state.currentCluster) return Object.keys(state.manifestsSeen).length > 0;
+            return false;
+        }
+
+        function getActiveManifests() {
+            const empty = emptyManifestLists();
+            if (!state.manifests) return empty;
+            if (state.currentCluster && state.manifests[state.currentCluster]) {
+                return state.manifests[state.currentCluster];
+            }
+            if (!state.currentCluster) {
+                if (state.manifests['default']) return state.manifests['default'];
+                const keys = Object.keys(state.manifests);
+                if (keys.length === 1) return state.manifests[keys[0]];
+            }
+            return empty;
+        }
+
+        function manifestMetaName(obj) {
+            return obj && obj.metadata && obj.metadata.name ? obj.metadata.name : '';
+        }
+
+        function manifestCapacity(pv, pvc) {
+            if (pv && pv.spec && pv.spec.capacity && pv.spec.capacity.storage) return pv.spec.capacity.storage;
+            if (pvc && pvc.status && pvc.status.capacity && pvc.status.capacity.storage) return pvc.status.capacity.storage;
+            if (pvc && pvc.spec && pvc.spec.resources && pvc.spec.resources.requests && pvc.spec.resources.requests.storage) {
+                return pvc.spec.resources.requests.storage;
+            }
+            return '';
+        }
+
+        function buildPersistentVolumeRows(manifests, storageClasses) {
+            const pvs = manifests.pvs || [];
+            const pvcs = manifests.pvcs || [];
+            const vas = manifests.vas || [];
+            const snapshots = manifests.snapshots || [];
+            const pvcByVolume = {};
+            const pvcByKey = {};
+
+            pvcs.forEach(pvc => {
+                const ns = pvc.metadata && pvc.metadata.namespace ? pvc.metadata.namespace : '';
+                const name = manifestMetaName(pvc);
+                if (ns && name) pvcByKey[ns + '/' + name] = pvc;
+                if (pvc.spec && pvc.spec.volumeName) pvcByVolume[pvc.spec.volumeName] = pvc;
+            });
+
+            const nodesByPv = {};
+            vas.forEach(va => {
+                const source = va.spec && va.spec.source;
+                const pvName = source && source.persistentVolumeName;
+                if (!pvName) return;
+                if (!nodesByPv[pvName]) nodesByPv[pvName] = [];
+                nodesByPv[pvName].push({
+                    node: (va.spec && va.spec.nodeName) || '',
+                    attached: !!(va.status && va.status.attached === true)
+                });
+            });
+
+            const snapsByPvc = {};
+            snapshots.forEach(snap => {
+                const ns = snap.metadata && snap.metadata.namespace ? snap.metadata.namespace : '';
+                const source = snap.spec && snap.spec.source;
+                const pvcName = source && source.persistentVolumeClaimName;
+                if (!ns || !pvcName) return;
+                const key = ns + '/' + pvcName;
+                snapsByPvc[key] = (snapsByPvc[key] || 0) + 1;
+            });
+
+            const rows = [];
+            const claimed = {};
+
+            pvs.forEach(pv => {
+                const pvName = manifestMetaName(pv);
+                const claim = pv.spec && pv.spec.claimRef;
+                let pvc = pvcByVolume[pvName];
+                if (!pvc && claim && claim.namespace && claim.name) {
+                    pvc = pvcByKey[claim.namespace + '/' + claim.name];
+                }
+                const pvcNs = pvc && pvc.metadata ? (pvc.metadata.namespace || '') : (claim && claim.namespace ? claim.namespace : '');
+                const pvcName = pvc ? manifestMetaName(pvc) : (claim && claim.name ? claim.name : '');
+                if (pvcNs && pvcName) claimed[pvcNs + '/' + pvcName] = true;
+                const handle = (pv.spec && pv.spec.csi && pv.spec.csi.volumeHandle) || '';
+                const identity = hspcIdentityFromPv(pv, storageClasses);
+                rows.push({
+                    pvName: pvName,
+                    pvcNamespace: pvcNs,
+                    pvcName: pvcName,
+                    phase: (pv.status && pv.status.phase) || (pvc && pvc.status && pvc.status.phase) || '',
+                    storageClass: (pv.spec && pv.spec.storageClassName) || (pvc && pvc.spec && pvc.spec.storageClassName) || '',
+                    capacity: manifestCapacity(pv, pvc),
+                    volumeHandle: handle,
+                    ldevId: identity.ldevId,
+                    ldevHex: identity.ldevHex,
+                    ports: identity.ports,
+                    arraySerial: identity.arraySerial,
+                    nickname: identity.nickname,
+                    attachments: nodesByPv[pvName] || [],
+                    snapshotCount: (pvcNs && pvcName) ? (snapsByPvc[pvcNs + '/' + pvcName] || 0) : 0,
+                    errors: 0,
+                    warnings: 0,
+                    volumeId: handle
+                });
+            });
+
+            pvcs.forEach(pvc => {
+                const ns = pvc.metadata && pvc.metadata.namespace ? pvc.metadata.namespace : '';
+                const name = manifestMetaName(pvc);
+                const key = ns + '/' + name;
+                if (!name || claimed[key]) return;
+                const volumeName = pvc.spec && pvc.spec.volumeName;
+                if (volumeName && pvs.some(pv => manifestMetaName(pv) === volumeName)) return;
+                rows.push({
+                    pvName: volumeName || '',
+                    pvcNamespace: ns,
+                    pvcName: name,
+                    phase: (pvc.status && pvc.status.phase) || 'Pending',
+                    storageClass: (pvc.spec && pvc.spec.storageClassName) || '',
+                    capacity: manifestCapacity(null, pvc),
+                    volumeHandle: '',
+                    ldevId: '',
+                    ldevHex: '',
+                    ports: [],
+                    arraySerial: '',
+                    nickname: '',
+                    attachments: [],
+                    snapshotCount: snapsByPvc[key] || 0,
+                    errors: 0,
+                    warnings: 0,
+                    volumeId: ''
+                });
+            });
+
+            rows.sort((a, b) => {
+                const an = (a.pvcNamespace ? a.pvcNamespace + '/' : '') + (a.pvcName || a.pvName);
+                const bn = (b.pvcNamespace ? b.pvcNamespace + '/' : '') + (b.pvcName || b.pvName);
+                return an.localeCompare(bn);
+            });
+            attachManifestLogIssues(rows);
+            return rows;
+        }
+
+        function manifestLogTerms(row) {
+            const terms = [];
+            if (row.pvcName && row.pvcName.length >= 3) terms.push(row.pvcName);
+            if (row.pvName && row.pvName.length >= 6 && row.pvName !== row.pvcName) terms.push(row.pvName);
+            if (row.volumeHandle && row.volumeHandle.length >= 8) terms.push(row.volumeHandle);
+            if (row.ldevId) terms.push('ldevIDDec:' + row.ldevId);
+            return terms;
+        }
+
+        function logsForCurrentCluster() {
+            const logs = (state.allLogs && state.allLogs.length)
+                ? state.allLogs
+                : Object.values(state.logs || {}).flat();
+            if (!state.currentCluster) return logs;
+            const prefix = state.currentCluster + '/';
+            return logs.filter(log => log.source && log.source.startsWith(prefix));
+        }
+
+        function attachManifestLogIssues(rows) {
+            rows.forEach(row => {
+                row.logTerms = manifestLogTerms(row);
+                row.errors = 0;
+                row.warnings = 0;
+            });
+            const terms = [];
+            rows.forEach(row => {
+                row.logTerms.forEach(term => terms.push({ term, row }));
+            });
+            if (!terms.length) return;
+            terms.sort((a, b) => b.term.length - a.term.length);
+            const matcher = new RegExp('(?:^|[^A-Za-z0-9._/-])(' + terms.map(item => escapeRegex(item.term)).join('|') + ')(?=$|[^A-Za-z0-9._/-])', 'g');
+            const rowsByTerm = new Map();
+            terms.forEach(item => {
+                if (!rowsByTerm.has(item.term)) rowsByTerm.set(item.term, []);
+                rowsByTerm.get(item.term).push(item.row);
+            });
+            logsForCurrentCluster().forEach(log => {
+                if (log.level !== 'ERROR' && log.level !== 'WARNING') return;
+                const raw = log.raw || '';
+                matcher.lastIndex = 0;
+                const seen = new Set();
+                let match;
+                while ((match = matcher.exec(raw))) {
+                    const hit = rowsByTerm.get(match[1]) || [];
+                    hit.forEach(row => {
+                        if (seen.has(row)) return;
+                        seen.add(row);
+                        if (log.level === 'ERROR') row.errors++;
+                        else row.warnings++;
+                    });
+                }
+            });
+        }
+
+        function renderPhaseBadge(phase) {
+            const label = phase || 'Unknown';
+            let color = 'var(--text-secondary)';
+            if (label === 'Bound') color = 'var(--success-green)';
+            else if (label === 'Pending' || label === 'Lost') color = 'var(--warning-yellow)';
+            else if (label === 'Failed') color = 'var(--error-red)';
+            return `<span style="font-weight: 600; color: ${color};">${escapeHtml(label)}</span>`;
+        }
+
+        function renderAttachmentCell(attachments) {
+            if (!attachments || attachments.length === 0) {
+                return '<span style="color: var(--text-secondary);">—</span>';
+            }
+            return attachments.map(attachment => {
+                const label = escapeHtml(attachment.node || 'unknown');
+                if (attachment.attached) return `<span class="node-badge">${label}</span>`;
+                return `<span class="node-badge">${label}</span> <span style="font-size: 10px; color: var(--warning-yellow);">not attached</span>`;
+            }).join('<br>');
+        }
+
+        function renderPersistentVolumesSection(rows) {
+            if (!manifestsWereCollected()) return '';
+            const countLabel = `${rows.length} volume${rows.length === 1 ? '' : 's'}`;
+            let html = `
+                <div id="persistent-volumes-section" class="config-section">
+                    <div class="config-section-header config-section-header-with-search">
+                        <div class="config-section-title-group">
+                            <span>💾 Persistent Volumes</span>
+                            <div class="config-section-toolbar config-section-toolbar-left">
+                                <label class="config-search-label" for="pvSearchInput">Filter</label>
+                                <div class="config-search-box search-box">
+                                    <span class="config-search-icon" aria-hidden="true">⌕</span>
+                                    <input type="text" id="pvSearchInput" placeholder="PV, PVC, storage class, handle…" autocomplete="off" oninput="filterPersistentVolumeTable(this.value)">
+                                </div>
+                            </div>
+                        </div>
+                        <span class="config-section-count" id="pvSearchCount">${countLabel}</span>
+                    </div>`;
+            if (rows.length === 0) {
+                html += `<div class="volume-search-empty">No HSPC persistent volumes were collected.</div></div>`;
+                return html;
+            }
+            html += `
+                    <table class="config-table">
+                        <thead>
+                            <tr>
+                                <th>PersistentVolume</th>
+                                <th>Claim</th>
+                                <th>Phase</th>
+                                <th>Storage Class</th>
+                                <th>Capacity</th>
+                                <th>LDEV</th>
+                                <th>Volume Handle</th>
+                                <th>Attached</th>
+                                <th>Snapshots</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>`;
+            rows.forEach((row, index) => {
+                const claim = row.pvcName
+                    ? escapeHtml((row.pvcNamespace ? row.pvcNamespace + '/' : '') + row.pvcName)
+                    : '<span style="color: var(--text-secondary);">—</span>';
+                const search = [row.pvName, row.pvcNamespace, row.pvcName, row.phase, row.storageClass, row.volumeHandle, row.ldevId, row.ldevHex, row.capacity]
+                    .concat((row.attachments || []).map(a => a.node))
+                    .join(' ')
+                    .toLowerCase();
+                let status = '';
+                if (row.errors > 0) {
+                    status += `<button type="button" class="issue-badge error-badge" onclick="showPersistentVolumeLogs(${index})" title="Show log lines that mention this volume">${row.errors} ERROR${row.errors > 1 ? 'S' : ''}</button>`;
+                }
+                if (row.warnings > 0) {
+                    status += `<button type="button" class="issue-badge warning-badge" onclick="showPersistentVolumeLogs(${index})" title="Show log lines that mention this volume">${row.warnings} WARNING${row.warnings > 1 ? 'S' : ''}</button>`;
+                }
+                if (!status) status = '<span style="color: var(--text-secondary); font-size: 11px;">OK</span>';
+                const snapshots = row.snapshotCount
+                    ? `<button type="button" class="copy-section-btn" onclick="showPersistentVolumeSnapshots(${index})" title="View VolumeSnapshot details">${row.snapshotCount}</button>`
+                    : '<span style="color: var(--text-secondary);">—</span>';
+                const rowClass = row.errors > 0 ? 'row-with-error' : (row.warnings > 0 ? 'row-with-warning' : '');
+                html += `
+                    <tr class="${rowClass}" data-pv-search="${escapeHtml(search)}">
+                        <td>${row.pvName ? `<button type="button" class="log-pvc-link" style="background:none;border:none;padding:0;font:inherit;" onclick="showPersistentVolumeYaml(${index}, 'pv')">${escapeHtml(row.pvName)}</button>` : '<span style="color: var(--text-secondary);">—</span>'}</td>
+                        <td style="font-size: 11px;">${row.pvcName ? `<button type="button" class="log-pvc-link" style="background:none;border:none;padding:0;font:inherit;" onclick="showPersistentVolumeYaml(${index}, 'pvc')">${claim}</button>` : claim}</td>
+                        <td>${renderPhaseBadge(row.phase)}</td>
+                        <td style="font-size: 11px;">${row.storageClass ? escapeHtml(row.storageClass) : '—'}</td>
+                        <td>${row.capacity ? escapeHtml(row.capacity) : '—'}</td>
+                        <td>${row.ldevId ? `<span class="ldev-id">${escapeHtml(row.ldevId)}</span>${row.ldevHex ? `<br><span style="font-size: 10px; color: var(--text-secondary);">${escapeHtml(row.ldevHex)}</span>` : ''}` : '<span style="color: var(--text-secondary);">—</span>'}</td>
+                        <td style="font-size: 10px; word-break: break-all;">${row.volumeHandle ? escapeHtml(row.volumeHandle) : '—'}</td>
+                        <td>${renderAttachmentCell(row.attachments)}</td>
+                        <td style="text-align: center;">${snapshots}</td>
+                        <td style="white-space: nowrap;">${status}</td>
+                    </tr>`;
+            });
+            html += `
+                        </tbody>
+                    </table>
+                    <div id="pvSearchEmpty" class="volume-search-empty" style="display: none;">No persistent volumes match your search.</div>
+                </div>`;
+            return html;
+        }
+
+        function manifestForDisplay(obj) {
+            if (!obj || typeof obj !== 'object') return obj;
+            const copy = JSON.parse(JSON.stringify(obj));
+            if (copy.metadata) delete copy.metadata.managedFields;
+            return copy;
+        }
+
+        function jsonToYaml(value, indent) {
+            const pad = '  '.repeat(indent || 0);
+            if (value === null || value === undefined) return 'null';
+            if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+            if (typeof value === 'string') {
+                if (value === '' || /[\n:#{}[\],&*!|>'"%@`]|^\s|\s$/.test(value) || /^(true|false|null|~)$/.test(value) || /^-?\d+(\.\d+)?$/.test(value)) {
+                    return JSON.stringify(value);
+                }
+                return value;
+            }
+            if (Array.isArray(value)) {
+                if (value.length === 0) return '[]';
+                return value.map(item => {
+                    if (item && typeof item === 'object' && !Array.isArray(item)) {
+                        const rendered = jsonToYaml(item, (indent || 0) + 1);
+                        const childPad = '  '.repeat((indent || 0) + 1);
+                        const lines = rendered.split('\n');
+                        const first = lines[0].startsWith(childPad) ? lines[0].slice(childPad.length) : lines[0];
+                        const rest = lines.slice(1).map(line => pad + '  ' + (line.startsWith(childPad) ? line.slice(childPad.length) : line)).join('\n');
+                        return pad + '- ' + first + (lines.length > 1 ? '\n' + rest : '');
+                    }
+                    if (Array.isArray(item)) {
+                        return pad + '-\n' + jsonToYaml(item, (indent || 0) + 1);
+                    }
+                    return pad + '- ' + jsonToYaml(item, 0);
+                }).join('\n');
+            }
+            const keys = Object.keys(value);
+            if (keys.length === 0) return '{}';
+            return keys.map(key => {
+                const child = value[key];
+                if (child && typeof child === 'object') {
+                    if (Array.isArray(child) && child.length === 0) return pad + key + ': []';
+                    if (!Array.isArray(child) && Object.keys(child).length === 0) return pad + key + ': {}';
+                    return pad + key + ':\n' + jsonToYaml(child, (indent || 0) + 1);
+                }
+                return pad + key + ': ' + jsonToYaml(child, 0);
+            }).join('\n');
+        }
+
+        function findManifestByName(list, name) {
+            if (!name) return null;
+            return (list || []).find(item => manifestMetaName(item) === name) || null;
+        }
+
+        function snapshotsForClaim(manifests, namespace, pvcName) {
+            if (!pvcName) return [];
+            return (manifests.snapshots || []).filter(snap => {
+                const source = snap.spec && snap.spec.source;
+                if (!source || source.persistentVolumeClaimName !== pvcName) return false;
+                const snapNs = snap.metadata && snap.metadata.namespace;
+                return !namespace || snapNs === namespace;
+            });
+        }
+
+        function snapshotContentFor(manifests, snap) {
+            const contents = manifests.snapshotcontents || [];
+            const bound = snap.status && snap.status.boundVolumeSnapshotContentName;
+            if (bound) {
+                const match = findManifestByName(contents, bound);
+                if (match) return match;
+            }
+            const snapName = manifestMetaName(snap);
+            const snapNs = snap.metadata && snap.metadata.namespace;
+            return contents.find(content => {
+                const ref = content.spec && content.spec.volumeSnapshotRef;
+                return ref && ref.name === snapName && (!snapNs || ref.namespace === snapNs);
+            }) || null;
+        }
+
+        function showManifestYamlModal(title, sections, activeKey) {
+            const modal = document.getElementById('yamlModal');
+            const titleEl = document.getElementById('yamlModalTitle');
+            const content = document.getElementById('yamlModalContent');
+            if (!modal || !titleEl || !content) return;
+            titleEl.textContent = title;
+            const available = sections.filter(section => section.yaml);
+            const selected = available.find(section => section.key === activeKey) || available[0];
+            if (!selected) {
+                content.textContent = 'No manifest was collected for this object.';
+                modal.classList.add('active');
+                return;
+            }
+            const tabs = available.map(section => {
+                const active = section.key === selected.key ? ' active' : '';
+                return `<button type="button" class="copy-section-btn${active}" data-manifest-tab="${escapeHtml(section.key)}">${escapeHtml(section.label)}</button>`;
+            }).join('');
+            content.innerHTML = `<div class="yaml-modal-tabs">${tabs}</div><div class="yaml-content" id="manifestYamlBody"></div>`;
+            const body = document.getElementById('manifestYamlBody');
+            body.textContent = selected.yaml;
+            content.querySelectorAll('[data-manifest-tab]').forEach(button => {
+                button.addEventListener('click', () => {
+                    const next = available.find(section => section.key === button.getAttribute('data-manifest-tab'));
+                    if (!next) return;
+                    content.querySelectorAll('[data-manifest-tab]').forEach(item => item.classList.toggle('active', item === button));
+                    body.textContent = next.yaml;
+                });
+            });
+            modal.classList.add('active');
+        }
+
+        window.showPersistentVolumeYaml = function(index, which) {
+            const row = (state.pvTableRows || [])[index];
+            if (!row) return;
+            const manifests = getActiveManifests();
+            const pv = findManifestByName(manifests.pvs, row.pvName);
+            const pvc = findManifestByName(manifests.pvcs, row.pvcName);
+            const label = row.pvcName
+                ? ((row.pvcNamespace ? row.pvcNamespace + '/' : '') + row.pvcName)
+                : row.pvName;
+            showManifestYamlModal(label || 'Volume', [
+                { key: 'pv', label: 'PersistentVolume', yaml: pv ? jsonToYaml(manifestForDisplay(pv), 0) : 'No PersistentVolume was collected for this claim.' },
+                { key: 'pvc', label: 'PersistentVolumeClaim', yaml: pvc ? jsonToYaml(manifestForDisplay(pvc), 0) : 'No PersistentVolumeClaim was collected for this volume.' }
+            ], which || 'pv');
+        };
+
+        window.showPersistentVolumeSnapshots = function(index) {
+            const row = (state.pvTableRows || [])[index];
+            if (!row) return;
+            const manifests = getActiveManifests();
+            const snaps = snapshotsForClaim(manifests, row.pvcNamespace, row.pvcName);
+            const sections = [];
+            snaps.forEach(snap => {
+                const name = manifestMetaName(snap);
+                sections.push({
+                    key: 'snap:' + name,
+                    label: name,
+                    yaml: jsonToYaml(manifestForDisplay(snap), 0)
+                });
+                const content = snapshotContentFor(manifests, snap);
+                if (content) {
+                    sections.push({
+                        key: 'content:' + manifestMetaName(content),
+                        label: manifestMetaName(content),
+                        yaml: jsonToYaml(manifestForDisplay(content), 0)
+                    });
+                }
+            });
+            const claim = (row.pvcNamespace ? row.pvcNamespace + '/' : '') + (row.pvcName || row.pvName);
+            if (!sections.length) {
+                sections.push({ key: 'none', label: 'Snapshots', yaml: 'No VolumeSnapshots reference this claim.' });
+            }
+            showManifestYamlModal('Snapshots for ' + claim, sections, sections[0].key);
+        };
+
+        function applyLogLevelFilter(level) {
+            state.filterLevel = level || 'ALL';
+            document.querySelectorAll('[data-level]').forEach(button => button.classList.remove('active'));
+            const levelBtn = document.querySelector(`[data-level="${state.filterLevel}"]`);
+            if (levelBtn) levelBtn.classList.add('active');
+        }
+
+        window.showPortLogs = async function(index, level) {
+            const port = (state.portUsageRows || [])[index];
+            if (!port) return;
+            const terms = new Set();
+            if (port.name) terms.add(port.name);
+            if (level && level !== 'ALL' && port.logTerms) {
+                port.logTerms.forEach(term => terms.add(term));
+            }
+            if (!terms.size) return;
+            const label = level && level !== 'ALL' ? `${port.name} ${level.toLowerCase()}s` : port.name;
+            showLoading('Finding log lines for ' + port.name + '...');
+            await new Promise(resolve => setTimeout(resolve, 50));
+            switchToLogsTab();
+            resetLogViewForJump();
+            applyLogLevelFilter(level && level !== 'ALL' ? level : 'ALL');
+            state.volumeFilter = {
+                label: label,
+                volumeId: port.name,
+                terms: Array.from(terms).map(term => String(term).toLowerCase())
+            };
+            state.categoryFilter = null;
+            rebuildTimelineOverlay();
+            invalidateCache();
+            if (typeof updatePodList === 'function') updatePodList();
+            await renderLogs();
+            logContent.scrollTop = 0;
+            updateVolumeFilterDisplay(label);
+            hideLoading();
+        };
+
+        window.showPersistentVolumeLogs = async function(index) {
+            const row = (state.pvTableRows || [])[index];
+            if (!row || !row.logTerms || !row.logTerms.length) return;
+            const label = row.pvcName
+                ? ((row.pvcNamespace ? row.pvcNamespace + '/' : '') + row.pvcName)
+                : row.pvName;
+            showLoading('Finding log lines for ' + label + '...');
+            await new Promise(resolve => setTimeout(resolve, 50));
+            switchToLogsTab();
+            resetLogViewForJump();
+            state.volumeFilter = {
+                label: label,
+                volumeId: row.volumeHandle || row.pvName || '',
+                terms: row.logTerms.map(term => term.toLowerCase())
+            };
+            state.categoryFilter = null;
+            rebuildTimelineOverlay();
+            invalidateCache();
+            if (typeof updatePodList === 'function') updatePodList();
+            await renderLogs();
+            logContent.scrollTop = 0;
+            updateVolumeFilterDisplay(label);
+            hideLoading();
+        };
+
+        function refreshVolumeLinkIndex() {
+            if (!state.pvTableRows && manifestsWereCollected()) {
+                const classes = getClusterStorageResources(state.currentCluster).storageClasses;
+                state.pvTableRows = buildPersistentVolumeRows(getActiveManifests(), classes);
+            }
+            const rows = state.pvTableRows || [];
+            const entries = [];
+            rows.forEach((row, index) => {
+                const names = [];
+                if (row.pvcName && row.pvcName.length >= 3) names.push(row.pvcName);
+                if (row.pvName && row.pvName.length >= 6) names.push(row.pvName);
+                names.forEach(name => entries.push({ name, index, errors: row.errors || 0 }));
+            });
+            entries.sort((a, b) => b.name.length - a.name.length);
+            state.volumeLinkEntries = entries;
+            state.volumeLinkByName = new Map();
+            entries.forEach(entry => {
+                if (!state.volumeLinkByName.has(entry.name)) state.volumeLinkByName.set(entry.name, entry);
+            });
+            const uniqueNames = Array.from(state.volumeLinkByName.keys());
+            state.volumeLinkRegex = uniqueNames.length
+                ? new RegExp('(^|[^A-Za-z0-9._/-])(' + uniqueNames.map(name => escapeRegex(name)).join('|') + ')(?=$|[^A-Za-z0-9._/-])', 'g')
+                : null;
+        }
+
+        function linkVolumeNames(escapedLine) {
+            if (!state.volumeLinkRegex || !escapedLine) return { html: escapedLine || '', mentionsError: false };
+            state.volumeLinkRegex.lastIndex = 0;
+            let mentionsError = false;
+            const html = escapedLine.replace(state.volumeLinkRegex, (full, prefix, name) => {
+                const entry = state.volumeLinkByName.get(name);
+                if (!entry) return full;
+                if (entry.errors > 0) mentionsError = true;
+                const errorClass = entry.errors > 0 ? ' log-pvc-error' : '';
+                const title = entry.errors > 0 ? ` title="${entry.errors} error log line${entry.errors === 1 ? '' : 's'}"` : '';
+                return `${prefix}<button type="button" class="log-pvc-link${errorClass}" data-pv-index="${entry.index}"${title}>${name}</button>`;
+            });
+            return { html, mentionsError };
+        }
+
+        function highlightOutsideTags(html, searchTerm) {
+            if (!searchTerm) return html;
+            const regex = new RegExp('(' + escapeRegex(searchTerm) + ')', 'gi');
+            return html.split(/(<[^>]+>)/).map(part => {
+                if (part.startsWith('<')) return part;
+                return part.replace(regex, '<span class="highlight">$1</span>');
+            }).join('');
+        }
+
+        window.filterPersistentVolumeTable = function(query) {
+            const needle = (query || '').trim().toLowerCase();
+            const rows = document.querySelectorAll('#persistent-volumes-section tbody tr');
+            let visible = 0;
+            rows.forEach(row => {
+                const text = row.getAttribute('data-pv-search') || '';
+                const show = !needle || text.indexOf(needle) !== -1;
+                row.style.display = show ? '' : 'none';
+                if (show) visible++;
+            });
+            const empty = document.getElementById('pvSearchEmpty');
+            if (empty) empty.style.display = needle && visible === 0 ? 'block' : 'none';
+            const count = document.getElementById('pvSearchCount');
+            if (count) {
+                const total = rows.length;
+                count.textContent = needle
+                    ? `${visible} of ${total} volume${total === 1 ? '' : 's'}`
+                    : `${total} volume${total === 1 ? '' : 's'}`;
+            }
+        };
+
         // Render Configuration (filtered by current cluster)
         function renderConfiguration() {
             const configContent = document.getElementById('configContent');
@@ -6771,9 +7567,12 @@
             const mpNodes = mpCluster ? (state.multipath[mpCluster] || {}) :
                 Object.values(state.multipath).reduce((acc, nodes) => Object.assign(acc, nodes), {});
             const multipathNodeCount = Object.keys(mpNodes).length;
-            const volumeCount = Object.keys(filteredVolumes).length;
             const storageClassCount = filteredStorageClasses.length;
             const volumeSnapshotClassCount = filteredVolumeSnapshotClasses.length;
+            const persistentVolumeRows = buildPersistentVolumeRows(getActiveManifests(), filteredStorageClasses);
+            state.pvTableRows = persistentVolumeRows;
+            state.volumeLinkRegex = null;
+            const persistentVolumeCount = persistentVolumeRows.length;
             
             // Build ports from storage classes (will be used for count and table)
             const portsInfo = new Map();
@@ -6798,24 +7597,27 @@
                             portParams.push(...sc.parameters.secondaryPortID.split(',').map(p => p.trim()));
                         }
                         
-                        // Create port entries with composite keys (port:arraySerial)
                         for (const portName of portParams) {
                             if (!portName) continue;
-                            const portKey = `${portName}:${serial}`;
-                            
-                            if (!portsInfo.has(portKey)) {
-                                portsInfo.set(portKey, {
-                                    name: portName,
-                                    arraySerial: serial,
-                                    volumes: new Set(),
-                                    errors: 0,
-                                    warnings: 0
-                                });
-                            }
+                            ensurePortUsageEntry(portsInfo, portName, serial);
                         }
                     }
                 });
             }
+
+            persistentVolumeRows.forEach(row => {
+                if (!row.arraySerial || !row.ports || !row.ports.length) return;
+                const volumeKey = row.pvName || row.volumeHandle;
+                if (!volumeKey) return;
+                row.ports.forEach(portName => {
+                    const entry = ensurePortUsageEntry(portsInfo, portName, row.arraySerial);
+                    if (entry.volumes.has(volumeKey)) return;
+                    entry.volumes.add(volumeKey);
+                    entry.errors += row.errors || 0;
+                    entry.warnings += row.warnings || 0;
+                    (row.logTerms || []).forEach(term => entry.logTerms.add(term));
+                });
+            });
             
             const portCount = portsInfo.size;
             
@@ -6832,7 +7634,7 @@
             // Array count is based on storage classes (VSCs link via storageclass-ref label)
             const arrayCount = arraysFromSC.size;
 
-            if (hostCount === 0 && volumeCount === 0 && arrayCount === 0 && storageClassCount === 0 && volumeSnapshotClassCount === 0) {
+            if (hostCount === 0 && arrayCount === 0 && storageClassCount === 0 && volumeSnapshotClassCount === 0 && !manifestsWereCollected()) {
                 configContent.innerHTML = `
                     <div class="empty-state">
                         <div class="empty-state-icon">📋</div>
@@ -6845,7 +7647,7 @@
             let html = '<div style="padding: 20px;">';
 
             // Problem Summary (if issues found) - use filtered config
-            const problemVolumes = Object.values(filteredVolumes).filter(v => v.errors > 0 || v.warnings > 0);
+            const problemVolumes = persistentVolumeRows.filter(row => row.errors > 0 || row.warnings > 0);
             const problemHosts = Object.values(filteredHosts).filter(h => h.errors > 0 || h.warnings > 0);
             const problemPorts = Object.values(filteredPorts).filter(p => p.errors > 0 || p.warnings > 0);
             const problemArrays = Object.values(filteredArrays).filter(a => a.errors > 0 || a.warnings > 0);
@@ -6865,7 +7667,7 @@
                 if (problemVolumes.length > 0) {
                     const errorCount = problemVolumes.reduce((sum, v) => sum + v.errors, 0);
                     const warnCount = problemVolumes.reduce((sum, v) => sum + v.warnings, 0);
-                    html += `<div class="problem-item">💾 <strong>${problemVolumes.length}</strong> volume(s) with issues (${errorCount} errors, ${warnCount} warnings)</div>`;
+                    html += `<div class="problem-item" style="cursor: pointer;" onclick="scrollToSection('persistent-volumes-section')">💾 <strong>${problemVolumes.length}</strong> persistent volume(s) mentioned in error or warning logs (${errorCount} errors, ${warnCount} warnings)</div>`;
                 }
                 if (problemHosts.length > 0) {
                     const errorCount = problemHosts.reduce((sum, h) => sum + h.errors, 0);
@@ -6904,10 +7706,11 @@
                         <div class="config-card-value">${wwnNodeCount}</div>
                         ${csiNodePodCount > wwnNodeCount ? `<div style="font-size: 10px; color: var(--text-secondary); margin-top: 4px; font-weight: normal;">of ${csiNodePodCount} CSI node pods</div>` : ''}
                     </div>
-                    <div class="config-card clickable-card" onclick="scrollToSection('volumes-section')" title="Click to view Volumes & LUN Mappings">
-                        <div class="config-card-title">Total Volumes</div>
-                        <div class="config-card-value">${volumeCount}</div>
-                    </div>
+                    ${manifestsWereCollected() ? `
+                    <div class="config-card clickable-card" onclick="scrollToSection('persistent-volumes-section')" title="HSPC PersistentVolumes and claims collected from the cluster">
+                        <div class="config-card-title">Persistent Volumes</div>
+                        <div class="config-card-value">${persistentVolumeCount}</div>
+                    </div>` : ''}
                     <div class="config-card clickable-card" onclick="scrollToSection('ports-section')" title="Click to view Port Usage Summary">
                         <div class="config-card-title">Storage Ports Used</div>
                         <div class="config-card-value">${portCount}</div>
@@ -7121,109 +7924,8 @@
             // Storage Classes (from cluster-context) - use filtered storage classes
             html += renderStorageClassesSection(filteredStorageClasses);
             html += renderVolumeSnapshotClassesSection(filteredVolumeSnapshotClasses);
+            html += renderPersistentVolumesSection(persistentVolumeRows);
 
-            // Volumes & LUNs Table
-            if (volumeCount > 0) {
-                html += `
-                    <div id="volumes-section" class="config-section">
-                        <div class="config-section-header config-section-header-with-search">
-                            <div class="config-section-title-group">
-                                <span>💾 Volumes & LUN Mappings</span>
-                                <div class="config-section-toolbar config-section-toolbar-left">
-                                    <label class="config-search-label" for="volumeSearchInput">Filter</label>
-                                    <div class="config-search-box search-box">
-                                        <span class="config-search-icon" aria-hidden="true">⌕</span>
-                                        <input type="text" id="volumeSearchInput" placeholder="LDEV, nickname, LUN, WWN, node…" autocomplete="off">
-                                        <span class="search-clear" id="volumeSearchClear" title="Clear search">✕</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <span class="config-section-count" id="volumeSearchCount">${volumeCount} volume${volumeCount !== 1 ? 's' : ''}</span>
-                        </div>
-                        <table class="config-table">
-                            <thead>
-                                <tr>
-                                    <th>LDEV ID</th>
-                                    <th>Nickname</th>
-                                    <th>Array</th>
-                                    <th>Size</th>
-                                    <th>Ports</th>
-                                    <th>LUN Mappings (by Host)</th>
-                                    <th>Nodes</th>
-                                    <th>Status</th>
-                                    <th>Timeline</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                `;
-
-                const sortedVolumes = Object.values(filteredVolumes).sort((a, b) => 
-                    parseInt(a.ldevId) - parseInt(b.ldevId)
-                );
-                const wwpnToHost = buildWwpnToHostLookup(filteredHosts);
-
-                for (const vol of sortedVolumes) {
-                    const rowClass = vol.errors > 0 ? 'row-with-error' : (vol.warnings > 0 ? 'row-with-warning' : '');
-                    const uniquePorts = [...new Set(vol.ports || [])];
-                    const portsHtml = uniquePorts.map(p => `<span class="port-badge">${p}</span>`).join(' ');
-                    
-                    let statusBadges = '';
-                    if (vol.errors > 0) statusBadges += `<span class="issue-badge error-badge">${vol.errors} ERROR${vol.errors > 1 ? 'S' : ''}</span>`;
-                    if (vol.warnings > 0) statusBadges += `<span class="issue-badge warning-badge">${vol.warnings} WARNING${vol.warnings > 1 ? 'S' : ''}</span>`;
-                    if (!statusBadges) statusBadges = '<span style="color: var(--text-secondary); font-size: 11px;">OK</span>';
-
-                    const lunsHtml = renderVolumeLunMappingsHtml(vol.mappings, wwpnToHost) || '-';
-
-                    const arraySerial = vol.arraySerial || extractArraySerialFromVolumeId(vol.volumeId);
-                    const arrayShort = arraySerial !== 'Unknown'
-                        ? arraySerial.substring(Math.max(0, arraySerial.length - 6))
-                        : '-';
-                    const nodeCount = vol.nodes ? vol.nodes.size : 0;
-                    const volumeSearchText = buildVolumeSearchText(vol, wwpnToHost);
-
-                    html += `
-                        <tr class="volume-table-row ${rowClass}" data-volume-search="${escapeHtml(volumeSearchText)}">
-                            <td>
-                                <span class="ldev-id">${vol.ldevId}</span>
-                                <br><span style="font-size: 10px; color: var(--text-secondary);">${vol.ldevHex || '-'}</span>
-                            </td>
-                            <td><span class="volume-nickname">${vol.nickname || '-'}</span></td>
-                            <td style="font-size: 10px; color: var(--text-secondary);">${arrayShort}</td>
-                            <td><strong>${vol.size || '-'}</strong></td>
-                            <td>${portsHtml || '-'}</td>
-                            <td>${lunsHtml || '-'}</td>
-                            <td style="font-size: 11px; text-align: center;">${nodeCount || '-'}</td>
-                            <td>${statusBadges}</td>
-                            <td><button class="btn timeline-btn" data-vid="${escapeHtml(vol.volumeId)}" onclick="showVolumeTimeline(this.dataset.vid)" title="Show unified timeline for this volume across all pod logs">🕒 Timeline</button></td>
-                        </tr>
-                    `;
-                }
-
-                html += `
-                            </tbody>
-                        </table>
-                        <div id="volumeSearchEmpty" class="volume-search-empty" style="display: none;">
-                            No volumes match your search.
-                        </div>
-                    </div>
-                `;
-            }
-            for (const [portKey, portInfo] of portsInfo.entries()) {
-                const logPort = filteredPorts[portKey] || filteredPorts[`${portInfo.name}:${normalizeArraySerial(portInfo.arraySerial)}`];
-                if (logPort) {
-                    if (logPort.volumes && logPort.volumes instanceof Set) {
-                        for (const volId of logPort.volumes) {
-                            portInfo.volumes.add(volId);
-                        }
-                    }
-                    portInfo.errors += logPort.errors || 0;
-                    portInfo.warnings += logPort.warnings || 0;
-                }
-            }
-            for (const vol of Object.values(filteredVolumes)) {
-                attachVolumeToPortUsage(portsInfo, vol);
-            }
-            
             if (portsInfo.size > 0) {
                 html += `
                     <div id="ports-section" class="config-section">
@@ -7236,7 +7938,7 @@
                                 <tr>
                                     <th>Port Name</th>
                                     <th>Array</th>
-                                    <th>Volumes Attached</th>
+                                    <th>Persistent Volumes</th>
                                     <th>Status</th>
                                 </tr>
                             </thead>
@@ -7249,26 +7951,27 @@
                     if (arrayCompare !== 0) return arrayCompare;
                     return a.name.localeCompare(b.name);
                 });
+                state.portUsageRows = sortedPorts;
 
-                for (const port of sortedPorts) {
+                sortedPorts.forEach((port, index) => {
                     const rowClass = port.errors > 0 ? 'row-with-error' : (port.warnings > 0 ? 'row-with-warning' : '');
                     
                     let statusBadges = '';
-                    if (port.errors > 0) statusBadges += `<span class="issue-badge error-badge">${port.errors} ERROR${port.errors > 1 ? 'S' : ''}</span>`;
-                    if (port.warnings > 0) statusBadges += `<span class="issue-badge warning-badge">${port.warnings} WARNING${port.warnings > 1 ? 'S' : ''}</span>`;
+                    if (port.errors > 0) statusBadges += `<button type="button" class="issue-badge error-badge" onclick="showPortLogs(${index}, 'ERROR')" title="Show error log lines for this port">${port.errors} ERROR${port.errors > 1 ? 'S' : ''}</button>`;
+                    if (port.warnings > 0) statusBadges += `<button type="button" class="issue-badge warning-badge" onclick="showPortLogs(${index}, 'WARNING')" title="Show warning log lines for this port">${port.warnings} WARNING${port.warnings > 1 ? 'S' : ''}</button>`;
                     if (!statusBadges) statusBadges = '<span style="color: var(--text-secondary); font-size: 11px;">OK</span>';
 
                     const arrayShort = port.arraySerial ? port.arraySerial.substring(port.arraySerial.length - 6) : '-';
 
                     html += `
                         <tr class="${rowClass}">
-                            <td><span class="port-badge">${port.name}</span></td>
+                            <td><button type="button" class="port-badge" onclick="showPortLogs(${index}, 'ALL')" title="Show log lines that mention ${escapeHtml(port.name)}">${escapeHtml(port.name)}</button></td>
                             <td style="font-size: 11px; color: var(--text-secondary);">${arrayShort}</td>
                             <td><strong>${port.volumes.size}</strong> volumes</td>
                             <td>${statusBadges}</td>
                         </tr>
                     `;
-                }
+                });
 
                 html += `
                             </tbody>
@@ -9696,55 +10399,11 @@
             if (!scSectionMatch) return null;
             
             const scSection = scSectionMatch[1];
-            const scBlocks = scSection.split(/(?=^allowVolumeExpansion:)/m).filter(b => b.trim() && b.includes('kind: StorageClass'));
+            const scBlocks = splitTopLevelYamlObjects(scSection).filter(b => b.includes('kind: StorageClass'));
             
             for (const block of scBlocks) {
-                const nameMatch = block.match(/^\s*name:\s*(.+)$/m);
-                if (nameMatch && nameMatch[1].trim() === storageClassName) {
-                    // Parse the storage class details
-                    const sc = {
-                        name: storageClassName,
-                        provisioner: null,
-                        reclaimPolicy: null,
-                        volumeBindingMode: null,
-                        allowVolumeExpansion: false,
-                        parameters: {},
-                        creationTimestamp: null
-                    };
-                    
-                    const provisionerMatch = block.match(/^provisioner:\s*(.+)$/m);
-                    if (provisionerMatch) sc.provisioner = provisionerMatch[1].trim();
-                    
-                    const reclaimMatch = block.match(/^reclaimPolicy:\s*(.+)$/m);
-                    if (reclaimMatch) sc.reclaimPolicy = reclaimMatch[1].trim();
-                    
-                    const bindingMatch = block.match(/^volumeBindingMode:\s*(.+)$/m);
-                    if (bindingMatch) sc.volumeBindingMode = bindingMatch[1].trim();
-                    
-                    const expansionMatch = block.match(/^allowVolumeExpansion:\s*(.+)$/m);
-                    if (expansionMatch) sc.allowVolumeExpansion = expansionMatch[1].trim() === 'true';
-                    
-                    const timestampMatch = block.match(/creationTimestamp:\s*"([^"]+)"/);
-                    if (timestampMatch) sc.creationTimestamp = timestampMatch[1].trim();
-                    
-                    // Parse parameters
-                    const paramsMatch = block.match(/^parameters:\s*\n((?:^\s{2}\S.*\n?)+)/m);
-                    if (paramsMatch) {
-                        const paramsSection = paramsMatch[1];
-                        const paramLines = paramsSection.split('\n').filter(l => l.trim());
-                        
-                        for (const line of paramLines) {
-                            const paramMatch = line.match(/^\s{2}(\S+):\s*(.+)$/);
-                            if (paramMatch) {
-                                const key = paramMatch[1].trim();
-                                const value = paramMatch[2].trim().replace(/^["']|["']$/g, '');
-                                sc.parameters[key] = value;
-                            }
-                        }
-                    }
-                    
-                    return sc;
-                }
+                const sc = parseStorageClassBlock(block);
+                if (sc && sc.name === storageClassName) return sc;
             }
             
             return null;
